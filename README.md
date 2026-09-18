@@ -1,93 +1,238 @@
-# procreepy
+# procreate-video
 
+Маленькая Unix-утилита для Linux/Fedora: достаёт из `.procreate` уже готовый
+архивный timelapse и собирает из его сегментов один MP4. Ничего не
+перекодирует (stream copy), ничего не рендерит.
 
+`.procreate` — это ZIP. Если запись таймлапса была включена, внутри лежит
 
-## Getting started
-
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
-
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
-
-## Add your files
-
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
-
-```
-cd existing_repo
-git remote add origin https://gitlab.com/po1nt-1/procreepy.git
-git branch -M main
-git push -uf origin main
+```text
+video/segments/segment-1.mp4
+video/segments/segment-2.mp4
+...
 ```
 
-## Integrate with your tools
+Утилита берёт именно эти файлы: сортирует **численно** (`segment-9` раньше
+`segment-10`), проверяет через `ffprobe` и склеивает FFmpeg concat demuxer'ом.
+`Document.archive`, слои и raster-чанки (`*.lz4`) она не открывает вообще.
 
-* [Set up project integrations](https://gitlab.com/po1nt-1/procreepy/-/settings/integrations)
+## Требования
 
-## Collaborate with your team
+- Python 3.9+ (только стандартная библиотека)
+- `ffmpeg` и `ffprobe`
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+```bash
+sudo dnf install ffmpeg-free      # или полный ffmpeg из RPM Fusion
+```
 
-## Test and Deploy
+Для склейки (`-c copy`) кодеры не нужны. Полный `ffmpeg` с `libx264` требуется
+только для необязательного флага `--reencode`.
 
-Use the built-in continuous integration in GitLab.
+## Установка
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
+Без установки — запускать прямо из репозитория:
 
-***
+```bash
+./procreate-video artwork.procreate artwork.mp4
+```
 
-# Editing this README
+Или поставить команду в `PATH`:
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+```bash
+pip install --user .          # даст команду procreate-video в ~/.local/bin
+# либо просто симлинк:
+ln -s "$PWD/procreate-video" ~/.local/bin/procreate-video
+```
 
-## Suggestions for a good README
+## Использование
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+Один файл:
 
-## Name
-Choose a self-explaining name for your project.
+```bash
+procreate-video artwork.procreate artwork.mp4
+procreate-video artwork.procreate > artwork.mp4
+cat artwork.procreate | procreate-video - > artwork.mp4
+procreate-video --list artwork.procreate
+procreate-video --verify artwork.procreate
+```
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+Поддерживаются все четыре комбинации `INPUT`/`OUTPUT`:
+`FILE OUTPUT`, `FILE -`, `- OUTPUT`, `- -`. Если `OUTPUT` опущен, это stdout.
+Если `OUTPUT` — существующая папка, видео кладётся в неё под именем оригинала
+(`procreate-video art.procreate videos/` → `videos/art.mp4`).
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+### Пакетный режим: папка `.procreate` → папка с видео
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+Сценарий «есть `input/` с кучей `.procreate`, нужно сложить видео в
+`output/timelaps/`»:
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+```bash
+procreate-video input/
+```
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+```text
+input/                                output/timelaps/
+├── Портрет кота.procreate      →     ├── Портрет кота.mp4
+├── Landscape v2.procreate      →     ├── Landscape v2.mp4
+└── Без таймлапса.procreate           └── (пропущен, предупреждение)
+```
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+- **Имена**: `<имя оригинала без .procreate>.mp4`. Пробелы, кириллица и
+  спецсимволы сохраняются как есть.
+- **Папка результата**: по умолчанию `output/timelaps/` относительно текущей
+  папки, создаётся сама. Другую можно указать вторым аргументом:
+  `procreate-video input/ ~/Videos/procreate`.
+- **Повторный запуск безопасен**: уже существующие видео пропускаются.
+  Пересобрать всё заново: `--force` (`-f`).
+- **`-r`** — заходить и в подпапки; структура подпапок повторяется в результате
+  (`input/2025/Cat.procreate` → `output/timelaps/2025/Cat.mp4`), так что
+  одинаковые имена в разных папках не конфликтуют.
+- **Один плохой файл не останавливает остальные.** Файл без таймлапса
+  (запись была выключена) — это предупреждение, а не ошибка. Битый файл — ошибка:
+  он попадёт в итоговую сводку, а код выхода будет `1`.
+- Скрытые файлы (`._Foo.procreate`, которые macOS оставляет при копировании)
+  игнорируются.
+- Оригиналы не изменяются.
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+Пример вывода (всё это идёт в stderr):
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+```text
+info: 4 .procreate file(s) in input -> output/timelaps/
+info: [1/4] input/Landscape v2.procreate -> output/timelaps/Landscape v2.mp4
+warning: [2/4] input/Без таймлапса.procreate: no timelapse video inside, skipped
+error: [3/4] input/Битый файл.procreate: input is not a valid ZIP archive ...
+info: [4/4] input/Портрет кота.procreate -> output/timelaps/Портрет кота.mp4
+info: summary: 2 converted, 1 without timelapse, 1 FAILED
+```
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+`--list` и `--verify` тоже принимают папку и проходят по всем файлам.
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+### Диагностика
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+```bash
+procreate-video --list artwork.procreate
+```
 
-## License
-For open source projects, say how it is licensed.
+```text
+input: artwork.procreate
+segments: 12
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+1  video/segments/segment-1.mp4
+2  video/segments/segment-2.mp4
+...
+12 video/segments/segment-12.mp4
+```
+
+```bash
+procreate-video --verify artwork.procreate
+```
+
+Извлекает каждый сегмент во временную папку, проверяет `ffprobe`'ом (и
+CRC внутри ZIP), показывает построчный отчёт и проверяет, что сегменты можно
+склеить без перекодирования. Итоговое видео **не создаётся**.
+`--list` не требует ни `ffmpeg`, ни `ffprobe`.
+
+## Опции
+
+| Опция | Что делает |
+|---|---|
+| `-r`, `--recursive` | папка на входе: обходить и подпапки |
+| `-f`, `--force` | папка на входе: перезаписывать уже готовые видео |
+| `--strict` | пропущенные номера сегментов — ошибка (по умолчанию предупреждение) |
+| `--reencode` | если сегменты нельзя склеить копированием, перекодировать в H.264 |
+| `--tmpdir DIR` | куда распаковывать сегменты |
+| `-q`, `--quiet` | печатать только warning/error |
+
+## Как это работает
+
+1. `INPUT` — файл или stdin. Stdin (и не-seekable вход вроде `<(cat x)`)
+   сначала спулится во временный файл, потому что ZIP требует произвольного
+   доступа.
+2. Проверка ZIP (`zipfile`, только чтение), поиск `video/segments/segment-N.mp4`.
+3. Численная сортировка. Пропуски в нумерации — предупреждение; имена без
+   номера игнорируются с предупреждением.
+4. Сегменты по одному извлекаются во временную папку и сразу проверяются
+   `ffprobe`'ом — на первом же битом остановка, без распаковки остального.
+5. Проверка совместимости (кодек, размер, pix_fmt, аудио). Иначе `-c copy`
+   молча даст мусор — поэтому несовместимость это ошибка с понятным
+   сообщением, а не сюрприз в готовом видео.
+6. `ffmpeg -f concat -safe 0 -i concat.txt -c copy …`
+7. Временная папка удаляется всегда — при успехе, ошибке, Ctrl+C и SIGTERM.
+
+### Вывод в файл и в stdout — это разные MP4
+
+- В **файл** пишется обычный MP4 (`+faststart`). Пишется во временный
+  `.partial` рядом и переименовывается только после успеха: неудачный запуск
+  не оставляет обрубков и не портит уже существующий файл.
+- В **stdout** пишется fragmented MP4 (`+frag_keyframe+empty_moov`), потому
+  что обычный MP4 требует seek, а pipe его не даёт. Он нормально играется в
+  mpv/VLC/браузерах/ffmpeg, но некоторые редакторы предпочитают обычный MP4.
+  Это касается и `> artwork.mp4`. Если нужен «классический» файл, используйте
+  `procreate-video artwork.procreate artwork.mp4`.
+- stdout никогда не пачкается текстом. Все `info:`/`warning:`/`error:` идут в
+  stderr. Единственное исключение — отчёт `--list`/`--verify`, где stdout
+  и есть результат. Если stdout — терминал, утилита отказывается
+  сваливать туда двоичный MP4.
+
+### Временные файлы и Fedora
+
+На Fedora `/tmp` — это tmpfs в оперативной памяти. Сегменты таймлапса могут быть
+сотни мегабайт, а при чтении из stdin спулится весь `.procreate`. Поэтому
+временная папка выбирается так: `--tmpdir` → `$TMPDIR` → `/var/tmp` (на диске).
+Перед распаковкой проверяется свободное место; если его не хватает, будет
+понятная ошибка с подсказкой, а не «No space left» посреди работы.
+
+## Коды выхода
+
+| Код | Значение |
+|---|---|
+| 0 | успех |
+| 1 | непредвиденная ошибка; в пакетном режиме — хотя бы один файл не удался |
+| 2 | неверные аргументы; вывод перезаписал бы вход; stdout — терминал |
+| 3 | вход не найден, пуст или не является ZIP |
+| 4 | в архиве нет `video/segments` (таймлапс не записывался) |
+| 5 | сегмент повреждён; двусмысленная или отсутствующая нумерация (`--strict`) |
+| 6 | нет `ffmpeg`/`ffprobe` (или нет `libx264` для `--reencode`) |
+| 7 | сегменты несовместимы для `-c copy` |
+| 8 | `ffmpeg` завершился с ошибкой |
+| 9 | ошибка записи результата или временных файлов |
+| 130 | прервано (Ctrl+C / SIGTERM) |
+
+## Тесты
+
+```bash
+sudo dnf install python3-pytest
+python3 -m pytest
+```
+
+Настоящие `.procreate` не нужны: тесты собирают ZIP из сгенерированных
+одноцветных MP4-сегментов (по цвету на сегмент). Поэтому порядок склейки
+проверяется по-настоящему: итоговое видео декодируется, и сверяются цвета
+кадров. Основные проверки идут через `ffprobe`/`ffmpeg` (число кадров,
+длительность, полное декодирование), а не через `cmp`: два независимых
+муксинга не обязаны давать одинаковые байты.
+
+Покрыто: обычный файл, отсутствие `video/segments`, один сегмент, 12
+сегментов в перемешанном порядке (`segment-9`/`segment-10`), stdin, stdout,
+пробелы и спецсимволы в именах, битый и обрезанный ZIP, битый и обрезанный
+MP4, порча CRC, отсутствие `ffmpeg`/`ffprobe`, ошибки записи (`/dev/full`),
+несовместимые сегменты, прерывание сигналом, весь пакетный режим.
+
+## Чего утилита намеренно не делает
+
+Не разбирает `Document.archive` (NSKeyedArchive), не трогает `*.lz4`, не
+восстанавливает слои и не рендерит изображение. Если таймлапс в файле не
+записывался, восстановить его из истории рисования эта утилита не может.
+Заметьте: `lz4 -t` на `.lz4` из `.procreate` не является проверкой целостности —
+это не самостоятельные LZ4-фреймы.
+
+## Источники по формату
+
+- Silica Viewer — https://github.com/heyzoish/silica-viewer
+- Silicate — https://github.com/axaril/silicate
+- ProcreateViewer — https://github.com/NothingData/ProcreateViewer
+- FFmpeg concat demuxer — https://ffmpeg.org/ffmpeg-formats.html#concat
+
+## Лицензия
+
+MIT, см. `LICENSE`.
