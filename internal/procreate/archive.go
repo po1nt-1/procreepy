@@ -112,8 +112,19 @@ func (a *Archive) ParseSegment(name string) (*mp4.Movie, error) {
 // StreamMdat copies segSize bytes starting at segStart (offsets inside the
 // member's uncompressed byte stream) to dst. The remainder of the member is
 // drained so the ZIP CRC is still verified. It returns the number of bytes
-// written to dst.
+// written to dst. Destination write errors are returned as-is; errors
+// reading the member are reported as BadSegmentError.
 func (a *Archive) StreamMdat(name string, segStart, segSize int64, dst io.Writer) (int64, error) {
+	return a.streamMdat(context.Background(), name, segStart, segSize, dst)
+}
+
+// StreamMdatCtx is StreamMdat that checks ctx (once per MiB) so an
+// interrupted run unwinds cleanly through the caller's defers.
+func (a *Archive) StreamMdatCtx(ctx context.Context, name string, segStart, segSize int64, dst io.Writer) (int64, error) {
+	return a.streamMdat(ctx, name, segStart, segSize, dst)
+}
+
+func (a *Archive) streamMdat(ctx context.Context, name string, segStart, segSize int64, dst io.Writer) (int64, error) {
 	f, err := a.member(name)
 	if err != nil {
 		return 0, err
@@ -127,47 +138,19 @@ func (a *Archive) StreamMdat(name string, segStart, segSize int64, dst io.Writer
 		return &BadSegmentError{Msg: fmt.Sprintf("segment %s is corrupted inside the archive: %v", name, err)}
 	}
 	if segStart > 0 {
-		if _, err := io.CopyN(io.Discard, rc, segStart); err != nil {
+		if err := ctxSkip(ctx, rc, segStart); err != nil {
 			return 0, corrupt(err)
 		}
 	}
-	n, err := io.CopyN(dst, rc, segSize)
-	if err == nil && n != segSize {
-		err = io.ErrUnexpectedEOF
+	n, werr, rerr := ctxCopyN(ctx, dst, rc, segSize)
+	if werr != nil {
+		return n, werr
 	}
-	if err != nil {
-		return n, corrupt(err)
+	if rerr == nil && n != segSize {
+		rerr = io.ErrUnexpectedEOF
 	}
-	if _, err := io.Copy(io.Discard, rc); err != nil {
-		return n, corrupt(err)
-	}
-	return n, nil
-}
-
-// StreamMdatCtx is StreamMdat that checks ctx (once per MiB) so an
-// interrupted run unwinds cleanly through the caller's defers.
-func (a *Archive) StreamMdatCtx(ctx context.Context, name string, segStart, segSize int64, dst io.Writer) (int64, error) {
-	f, err := a.member(name)
-	if err != nil {
-		return 0, err
-	}
-	rc, err := f.Open()
-	if err != nil {
-		return 0, &BadSegmentError{Msg: fmt.Sprintf("cannot read segment %s: %v", name, err)}
-	}
-	defer rc.Close()
-	corrupt := func(err error) error {
-		return &BadSegmentError{Msg: fmt.Sprintf("segment %s is corrupted inside the archive: %v", name, err)}
-	}
-	if err := ctxSkip(ctx, rc, segStart); err != nil {
-		return 0, corrupt(err)
-	}
-	n, err := ctxCopyN(ctx, dst, rc, segSize)
-	if err == nil && n != segSize {
-		err = io.ErrUnexpectedEOF
-	}
-	if err != nil {
-		return n, corrupt(err)
+	if rerr != nil {
+		return n, corrupt(rerr)
 	}
 	if _, err := io.Copy(io.Discard, rc); err != nil {
 		return n, corrupt(err)
@@ -214,12 +197,15 @@ func ctxSkip(ctx context.Context, r io.Reader, n int64) error {
 	return nil
 }
 
-func ctxCopyN(ctx context.Context, dst io.Writer, src io.Reader, n int64) (int64, error) {
+// ctxCopyN copies at most n bytes from src to dst. It returns the number of
+// bytes written plus, separately, the destination write error and the source
+// read error (either may be nil) so the caller can classify them.
+func ctxCopyN(ctx context.Context, dst io.Writer, src io.Reader, n int64) (int64, error, error) {
 	buf := make([]byte, 1<<20)
 	var written int64
 	for n > 0 {
 		if err := ctxCheck(ctx); err != nil {
-			return written, err
+			return written, nil, err
 		}
 		k := int64(len(buf))
 		if n < k {
@@ -229,25 +215,25 @@ func ctxCopyN(ctx context.Context, dst io.Writer, src io.Reader, n int64) (int64
 		if m > 0 {
 			w, werr := dst.Write(buf[:m])
 			if werr != nil {
-				return written, werr
+				return written + int64(w), werr, nil
 			}
 			written += int64(w)
 			n -= int64(m)
 		}
 		if rerr == io.EOF {
 			if n > 0 {
-				return written, io.ErrUnexpectedEOF
+				return written, nil, io.ErrUnexpectedEOF
 			}
-			return written, nil
+			return written, nil, nil
 		}
 		if rerr != nil {
-			return written, rerr
+			return written, nil, rerr
 		}
 		if m == 0 {
-			return written, io.ErrUnexpectedEOF
+			return written, nil, io.ErrUnexpectedEOF
 		}
 	}
-	return written, nil
+	return written, nil, nil
 }
 
 func (a *Archive) member(name string) (*zip.File, error) {
