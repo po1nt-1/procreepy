@@ -100,7 +100,7 @@ func TestVerifySingle(t *testing.T) {
 		fmt.Sprintf("1 ok    %s  2.00s  video/segments/segment-1.mp4\n", sum) +
 		fmt.Sprintf("2 ok    %s  2.00s  video/segments/segment-2.mp4\n", sum) +
 		fmt.Sprintf("3 ok    %s  2.00s  video/segments/segment-3.mp4\n", sum) +
-		"\nverify: ok, 3 segment(s), ~6.0 s of video"
+		"\nverify: ok, 3 segment(s), ~6.0 s of video\n"
 	check(t, run(t, dir, nil, "--verify", "in.procreate"), 0, wantOut, "")
 }
 
@@ -147,7 +147,7 @@ func TestVerifyDirectoryMixed(t *testing.T) {
 		fmt.Sprintf("1 ok    %s  2.00s  video/segments/segment-1.mp4\n", sum) +
 		fmt.Sprintf("2 ok    %s  2.00s  video/segments/segment-2.mp4\n", sum) +
 		fmt.Sprintf("3 ok    %s  2.00s  video/segments/segment-3.mp4\n", sum) +
-		"\nverify: ok, 3 segment(s), ~6.0 s of video"
+		"\nverify: ok, 3 segment(s), ~6.0 s of video\n"
 	reportC := "input: input/c.procreate\nsegments: 3\n\n" +
 		"1 FAIL  segment video/segments/segment-1.mp4 is corrupted inside the archive: zip: checksum error\n" +
 		fmt.Sprintf("2 ok    %s  2.00s  video/segments/segment-2.mp4\n", sum) +

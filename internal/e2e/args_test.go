@@ -2,7 +2,7 @@ package e2e
 
 import "testing"
 
-// wantHelp is the exact stdout of --help (no trailing newline).
+// wantHelp is the exact stdout of --help (with a trailing newline).
 const wantHelp = `usage: procreepy [options] INPUT [OUTPUT]
 
 Extract the archived timelapse from .procreate files as ready-made MP4 videos.
@@ -41,7 +41,8 @@ examples:
 
 INPUT may be a file, a directory of files, or - for stdin.
 OUTPUT may be a file, a directory, or - / omitted for stdout.
-Messages go to stderr; stdout carries only video (or the --list/--verify report).`
+Messages go to stderr; stdout carries only video (or the --list/--verify report).
+`
 
 func TestVersionAndHelp(t *testing.T) {
 	tt := []struct {

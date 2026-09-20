@@ -119,7 +119,7 @@ func run(argv []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, prog, versionStr)
 		return exitOK
 	case actHelp:
-		fmt.Fprint(stdout, helpText)
+		fmt.Fprintln(stdout, helpText)
 		return exitOK
 	}
 	if perr != nil {

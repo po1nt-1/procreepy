@@ -101,7 +101,7 @@ func Verify(ctx context.Context, log *slog.Logger, inputArg string, cfg Config) 
 	if err := checkCompatibility(goodSegs, good); err != nil {
 		return sb.String(), err
 	}
-	fmt.Fprintf(&sb, "\nverify: ok, %d segment(s), ~%.1f s of video", len(good), total)
+	fmt.Fprintf(&sb, "\nverify: ok, %d segment(s), ~%.1f s of video\n", len(good), total)
 	return sb.String(), nil
 }
 

@@ -298,7 +298,7 @@ func TestVerifyOk(t *testing.T) {
 		"1 ok    video h264 320x240 yuv420p, audio aac 44100Hz 2ch  2.00s  video/segments/segment-1.mp4\n" +
 		"2 ok    video h264 320x240 yuv420p, audio aac 44100Hz 2ch  1.00s  video/segments/segment-2.mp4\n" +
 		"\n" +
-		"verify: ok, 2 segment(s), ~3.0 s of video"
+		"verify: ok, 2 segment(s), ~3.0 s of video\n"
 	if report != want {
 		t.Fatalf("report:\n%q\nwant:\n%q", report, want)
 	}
