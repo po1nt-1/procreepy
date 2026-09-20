@@ -8,9 +8,11 @@ import (
 
 // Parse reads a whole progressive MP4 file from r (size bytes) and returns
 // its essence. Fragmented layouts (top-level moof/mdat) are rejected.
+// Top-level mdat payloads are never loaded: their media data can be
+// gigabytes long and is only referenced by (start, end) for later streaming.
 func Parse(r io.ReaderAt, size int64) (*Movie, error) {
 	rd := NewReader(r, size)
-	top, err := ScanBoxes(rd, 0, size)
+	top, err := scanBoxes(rd, 0, size, func(typ string) bool { return typ == "mdat" })
 	if err != nil {
 		return nil, fmt.Errorf("read top level: %w", err)
 	}
@@ -431,6 +433,9 @@ func parseStsz(pay []byte) (uint32, []uint32, error) {
 	}
 	uniform := u32be(rest[0:4])
 	count := u32be(rest[4:8])
+	if count > MaxSamples {
+		return 0, nil, fmt.Errorf("%w: stsz declares %d samples", ErrBadStructure, count)
+	}
 	if uniform != 0 {
 		sizes := make([]uint32, count)
 		for i := range sizes {

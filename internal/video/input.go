@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
-	"unsafe"
 
 	"procreepy/internal/procreate"
 	"procreepy/internal/ui"
@@ -126,14 +125,6 @@ func tempBase(cfg Config) string {
 		}
 	}
 	return ""
-}
-
-// isTTY reports whether fd refers to a terminal (TCGETS ioctl, Linux).
-func isTTY(fd int) bool {
-	var t syscall.Termios
-	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), uintptr(syscall.TCGETS),
-		uintptr(unsafe.Pointer(&t)))
-	return errno == 0
 }
 
 // strerror renders an OS error like strerror(3), capitalized:

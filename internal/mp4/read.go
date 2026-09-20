@@ -24,6 +24,11 @@ var (
 // what we expect or an attempt to exhaust memory.
 const MaxMoovSize = 512 << 20
 
+// MaxSamples bounds the number of samples a track may declare. Real media is
+// orders of magnitude smaller; a bigger count is a corrupted or hostile file
+// and would make the sample-size table consume gigabytes.
+const MaxSamples = 1 << 28 // ~268M samples: 13 days at 240 fps
+
 // Box is one top- or second-level box: header plus payload.
 type Box struct {
 	Type   string
@@ -73,8 +78,16 @@ func validFourCC(b []byte) error {
 }
 
 // ScanBoxes lists sibling boxes covering the half-open range [off, end).
-// Each returned box carries its payload in full.
+// Every returned box carries its payload in full.
 func ScanBoxes(rd *Reader, off, end int64) ([]Box, error) {
+	return scanBoxes(rd, off, end, nil)
+}
+
+// scanBoxes walks [off, end) collecting box headers. Unless skipPayload
+// reports true for a box type, its payload is read into b.Pay. Skipping keeps
+// multi-gigabyte mdat payloads out of memory: only their geometry is
+// recorded, which is all the top-level parse needs.
+func scanBoxes(rd *Reader, off, end int64, skipPayload func(typ string) bool) ([]Box, error) {
 	if off < 0 || end > rd.size || off > end {
 		return nil, ErrTruncated
 	}
@@ -120,7 +133,7 @@ func ScanBoxes(rd *Reader, off, end int64) ([]Box, error) {
 		}
 		b := Box{Type: typ, Off: p, Size: size, PayOff: p + header}
 		pay := size - header
-		if pay > 0 {
+		if pay > 0 && (skipPayload == nil || !skipPayload(typ)) {
 			b.Pay = make([]byte, pay)
 			if _, err := rd.ReadAt(b.Pay, b.PayOff); err != nil {
 				return nil, err

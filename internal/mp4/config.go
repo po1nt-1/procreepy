@@ -97,9 +97,21 @@ func esdsDescLength(pay []byte, i int) (length, n int) {
 	return -1, -1
 }
 
+// maxEsdsDepth bounds how deep nested ES_Descriptors may be before we stop.
+// Real streams are 1-2 levels deep; a hostile moov can nest millions of
+// 0x03 tags to exhaust the goroutine stack, so we cut the walk off.
+const maxEsdsDepth = 64
+
 // esdsFindDecoderASC walks the ES descriptor tree and returns the audio
 // specific config of the first DecoderConfigDescriptor (tag 0x04).
 func esdsFindDecoderASC(pay []byte, start, end int) []byte {
+	return esdsFindDecoderASCDepth(pay, start, end, 0)
+}
+
+func esdsFindDecoderASCDepth(pay []byte, start, end, depth int) []byte {
+	if depth > maxEsdsDepth {
+		return nil
+	}
 	i := start
 	for i < end {
 		if i+2 > end {
@@ -118,7 +130,7 @@ func esdsFindDecoderASC(pay []byte, start, end int) []byte {
 		i = bodyEnd
 		switch tag {
 		case 0x03: // ES_Descriptor: descend
-			if found := esdsFindDecoderASC(pay, bodyStart, bodyEnd); found != nil {
+			if found := esdsFindDecoderASCDepth(pay, bodyStart, bodyEnd, depth+1); found != nil {
 				return found
 			}
 		case 0x04: // DecoderConfigDescriptor

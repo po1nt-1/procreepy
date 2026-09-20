@@ -6,6 +6,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -241,4 +242,57 @@ func WriteArchive(t *testing.T, entries map[string][]byte, compress bool) string
 		t.Fatalf("write archive: %v", err)
 	}
 	return p
+}
+
+// WriteSegmentArchive writes n identical timelapse segments
+// (video/segments/segment-NNNN.mp4, 1-based) to a fresh ZIP, generating and
+// streaming each segment into the archive as it is written — no whole-archive
+// buffer is kept. It returns the file path and the total uncompressed
+// media (mdat payload) size.
+func WriteSegmentArchive(t *testing.T, n int, compress bool, videoSizes, audioSizes []uint32) (string, int64) {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "segments.procreate")
+	f, err := os.Create(p)
+	if err != nil {
+		t.Fatalf("create archive: %v", err)
+	}
+	fail := func(err error) {
+		f.Close()
+		t.Fatalf("write archive: %v", err)
+	}
+	zw := zip.NewWriter(f)
+	method := zip.Store
+	if compress {
+		method = zip.Deflate
+	}
+	var media int64
+	for i := 1; i <= n; i++ {
+		seg := Segment(320, 240, videoSizes, audioSizes)
+		w, err := zw.CreateHeader(&zip.FileHeader{
+			Name:     fmt.Sprintf("video/segments/segment-%04d.mp4", i),
+			Method:   method,
+			Modified: time.Date(1980, 1, 1, 0, 0, 0, 0, time.UTC), // DOS epoch
+		})
+		if err != nil {
+			fail(err)
+		}
+		if _, err := w.Write(seg); err != nil {
+			fail(err)
+		}
+		var m int
+		for _, s := range videoSizes {
+			m += int(s)
+		}
+		for _, s := range audioSizes {
+			m += int(s)
+		}
+		media += int64(m)
+	}
+	if err := zw.Close(); err != nil {
+		fail(err)
+	}
+	if err := f.Close(); err != nil {
+		fail(err)
+	}
+	return p, media
 }

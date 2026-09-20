@@ -112,7 +112,7 @@ func (o *Output) prepare(inputArg string) error {
 		}
 		if stOut, errOut := os.Stat(abs); errOut == nil &&
 			inputArg != "-" && isRegular(inputArg) {
-			if stIn, errIn := os.Stat(inputArg); errIn == nil && sameFile(stIn, stOut) {
+			if stIn, errIn := os.Stat(inputArg); errIn == nil && os.SameFile(stIn, stOut) {
 				return &UsageError{Msg: "OUTPUT is the same file as INPUT: " + o.Path}
 			}
 		}
@@ -137,15 +137,6 @@ func (o Output) partialName() string {
 	_, _ = rand.Read(b[:])
 	return filepath.Join(filepath.Dir(o.Path),
 		fmt.Sprintf(".procreepy-%d-%s.partial", os.Getpid(), hex.EncodeToString(b[:])))
-}
-
-func sameFile(a, b os.FileInfo) bool {
-	sa, ok := a.Sys().(*syscall.Stat_t)
-	sb, ok := b.Sys().(*syscall.Stat_t)
-	if !ok {
-		return false
-	}
-	return sa.Dev == sb.Dev && sa.Ino == sb.Ino
 }
 
 // errIs reports whether err (or a wrapped cause) is the given OS errno.

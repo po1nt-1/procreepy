@@ -243,14 +243,3 @@ func emit(ctx context.Context, arch *procreate.Archive, segs []procreate.Segment
 	}
 	return n, nil
 }
-
-// devnullStdout points fd 1 at /dev/null so the shell does not complain
-// about the dying writer after a broken pipe.
-func devnullStdout() {
-	f, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
-	if err != nil {
-		return
-	}
-	syscall.Dup2(int(f.Fd()), 1)
-	f.Close()
-}
