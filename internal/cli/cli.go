@@ -21,12 +21,15 @@ import (
 const (
 	prog = "procreepy"
 
-	versionStr = "0.1.0"
-
 	usageLine = prog + " [options] INPUT [OUTPUT]"
 
 	description = "Extract the archived timelapse from .procreate files as ready-made MP4 videos."
 )
+
+// versionStr is the git tag at build time, injected via
+// -ldflags "-X procreepy/internal/cli.versionStr=..."; dev builds keep
+// the placeholder. The tag is the single source of truth for the version.
+var versionStr = "dev"
 
 const epilog = `examples:
   procreepy artwork.procreate artwork.mp4

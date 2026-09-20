@@ -70,7 +70,7 @@ func TestVersion(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code = %d, want 0", code)
 	}
-	if out != "procreepy 0.1.0\n" {
+	if out != "procreepy dev\n" {
 		t.Fatalf("stdout = %q", out)
 	}
 }

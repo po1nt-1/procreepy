@@ -50,7 +50,7 @@ func TestVersionAndHelp(t *testing.T) {
 		args []string
 		want string
 	}{
-		{"version", []string{"--version"}, "procreepy 0.1.0\n"},
+		{"version", []string{"--version"}, "procreepy dev\n"},
 		{"help_short", []string{"-h"}, wantHelp},
 		{"help_long", []string{"--help"}, wantHelp},
 		// -h fires as soon as it is met, before end-of-scan validation.

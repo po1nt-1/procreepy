@@ -1,0 +1,30 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+# Creating a release + uploading assets needs write access to contents;
+# nothing else is touched.
+permissions:
+  contents: write
+
+jobs:
+  goreleaser:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        # Full history + tags: goreleaser derives the version from the tag
+        # and generates the changelog from the commit range.
+        fetch-depth: 0
+    - name: install goreleaser
+      run: |
+        mkdir -p "$HOME/bin"
+        curl -LsSfL https://github.com/goreleaser/goreleaser/releases/download/v2.18.2/goreleaser_Linux_x86_64.tar.gz -o /tmp/goreleaser.tar.gz
+        tar -C "$HOME/bin" -xzf /tmp/goreleaser.tar.gz goreleaser
+        echo "$HOME/bin" >> "$GITHUB_PATH"
+    - name: release
+      run: goreleaser release --clean
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
