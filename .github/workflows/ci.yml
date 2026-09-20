@@ -1,0 +1,168 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  GOTOOLCHAIN: "local"
+  GOPROXY: "off"
+  GOFLAGS: "-mod=readonly"
+  CGO_ENABLED: "0"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container: golang:1.27.1
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - name: vet
+      run: go vet ./...
+    # e2e self-aggregates cover.e2e.out; running it under -coverprofile
+    # would add a colliding second writer.
+    - name: full suite
+      run: go test ./... -count=1
+    # e2e excluded: its data already arrives via cover.e2e.out. The
+    # ./internal/... scope keeps cmd/ measured exactly once, via the e2e binary.
+    - name: package coverage
+      run: go test $(go list ./internal/... | grep -v internal/e2e) -count=1 -coverprofile=xpkg.out -coverpkg=./internal/...
+    - name: merge and render Cobertura
+      run: |
+        go run ./tools/cov2cobertura -o coverage.xml -merged merged.out -strip procreepy/ xpkg.out cover.e2e.out
+        go tool cover -func merged.out | grep '^total'
+    - uses: actions/upload-artifact@v4
+      with:
+        name: coverage
+        path: |
+          coverage.xml
+          merged.out
+        if-no-files-found: error
+
+  sast:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-go@v5
+      with:
+        go-version: "1.27.1"
+    - uses: github/codeql-action/init@v3
+      with:
+        languages: go
+    - uses: github/codeql-action/autobuild@v3
+    - uses: github/codeql-action/analyze@v3
+      with:
+        category: "/language:go"
+
+  build:
+    # Zero deps + CGO_ENABLED=0: the whole matrix cross-compiles on one runner.
+    runs-on: ubuntu-latest
+    container: golang:1.27.1
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - { goos: linux, goarch: amd64 }
+        - { goos: linux, goarch: arm64 }
+        - { goos: linux, goarch: arm }
+        - { goos: windows, goarch: amd64 }
+        - { goos: windows, goarch: arm64 }
+        - { goos: darwin, goarch: amd64 }
+        - { goos: darwin, goarch: arm64 }
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - name: release binary
+      env:
+        GOOS: ${{ matrix.goos }}
+        GOARCH: ${{ matrix.goarch }}
+      run: |
+        EXE=""
+        if [ "$GOOS" = "windows" ]; then EXE=".exe"; fi
+        if [ "${GITHUB_REF_TYPE}" = "tag" ]; then VERSION="$GITHUB_REF_NAME"; else VERSION="dev-${GITHUB_SHA::7}"; fi
+        BIN="procreepy-$VERSION-$GOOS-$GOARCH$EXE"
+        go build -trimpath -buildvcs=false -ldflags="-s -w" -o "$BIN" ./cmd/procreepy
+        mkdir -p dist
+        mv "$BIN" dist/
+        # Normalized tar+gzip: the tarball must stay bit-identical across runs.
+        tar --sort=name --owner=0 --group=0 --numeric-owner --mtime=@0 -cf - -C dist "$BIN" | gzip -n > "dist/$BIN.tar.gz"
+        rm "dist/$BIN"
+        sha256sum "dist/$BIN.tar.gz"
+    - uses: actions/upload-artifact@v4
+      with:
+        name: dist-${{ matrix.goos }}-${{ matrix.goarch }}
+        path: dist/
+
+  dist:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/download-artifact@v4
+      with:
+        pattern: dist-*
+        path: dist
+    - name: checksum manifest
+      run: |
+        cd dist
+        find . -name '*.tar.gz' -printf '%P\n' | sort | xargs sha256sum > SHA256SUMS
+        cat SHA256SUMS
+    - uses: actions/upload-artifact@v4
+      with:
+        name: dist
+        path: dist/
+
+  repro:
+    runs-on: ubuntu-latest
+    container: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - { flavor: glibc, image: golang:1.27.1 }
+        - { flavor: musl, image: golang:1.27.1-alpine }
+    env:
+      GOOS: linux
+      GOARCH: amd64
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - name: build twice across a cold cache
+      run: |
+        go build -trimpath -buildvcs=false -ldflags="-s -w" -o /tmp/pass1 ./cmd/procreepy
+        # Wipe the cache between passes: the output must not depend on it.
+        rm -rf "$(go env GOCACHE)"
+        go build -trimpath -buildvcs=false -ldflags="-s -w" -o /tmp/pass2 ./cmd/procreepy
+        H1="$(sha256sum /tmp/pass1 | cut -d' ' -f1)"
+        H2="$(sha256sum /tmp/pass2 | cut -d' ' -f1)"
+        test "$H1" = "$H2"
+        echo "$H1" > "repro-${{ matrix.flavor }}.sha256"
+    - uses: actions/upload-artifact@v4
+      with:
+        name: repro-${{ matrix.flavor }}.sha256
+        path: repro-${{ matrix.flavor }}.sha256
+
+  repro-compare:
+    needs: repro
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/download-artifact@v4
+      with:
+        pattern: repro-*.sha256
+        path: repro
+    - name: glibc == musl
+      run: |
+        cmp repro/repro-glibc.sha256 repro/repro-musl.sha256
+        echo "reproducible: $(cat repro/repro-glibc.sha256) (glibc == musl)"
