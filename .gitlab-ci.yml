@@ -146,4 +146,4 @@ repro:compare:
     artifacts: true
   script:
     - cmp repro-glibc.sha256 repro-musl.sha256
-    - echo "reproducible: $(cat repro-glibc.sha256) (glibc == musl)"
+    - 'echo "reproducible: $(cat repro-glibc.sha256) (glibc == musl)"'
