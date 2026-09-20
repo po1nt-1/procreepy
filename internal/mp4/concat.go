@@ -25,7 +25,6 @@ type trackSig struct {
 	config  string // "avcC", "hvcC", "esds", ...
 	confDat []byte
 	matrix  [9]int64
-	sync    bool
 }
 
 func (t *TrackState) sig() trackSig {
@@ -38,16 +37,88 @@ func (t *TrackState) sig() trackSig {
 		width: t.Width, height: t.Height, pixfmt: t.PixFmt,
 		rate: t.AudioRate, chans: t.AudioChans, ts: t.Timescale,
 		config: t.ConfigBox, confDat: t.ConfigData, matrix: t.Matrix,
-		sync: t.HasSyncTable,
 	}
 }
 
-func (s trackSig) same(o trackSig) bool {
-	return s.kind == o.kind && s.handler == o.handler && s.fourcc == o.fourcc &&
-		s.width == o.width && s.height == o.height &&
-		s.rate == o.rate && s.chans == o.chans && s.ts == o.ts &&
-		s.config == o.config && bytes.Equal(s.confDat, o.confDat) &&
-		s.matrix == o.matrix && s.sync == o.sync
+func (s trackSig) same(o trackSig) bool { return len(diffTracks(s, o)) == 0 }
+
+// Field names an aspect in which two segments can fail stream-copy
+// compatibility.
+type Field string
+
+const (
+	FieldStreamType    Field = "stream type"
+	FieldStreamCount   Field = "stream count"
+	FieldHandler       Field = "handler"
+	FieldFourCC        Field = "codec fourcc"
+	FieldWidth         Field = "width"
+	FieldHeight        Field = "height"
+	FieldSampleRate    Field = "sample rate"
+	FieldChannels      Field = "channels"
+	FieldTimescale     Field = "timescale"
+	FieldConfig        Field = "codec configuration"
+	FieldMatrix        Field = "color matrix"
+	FieldMvhdTimescale Field = "mvhd timescale"
+)
+
+// diffTracks lists the fields in which two tracks differ, in signature order.
+// pixfmt is display-only (derived from the codec configuration) and the stss
+// table is not a compatibility field: keyframe placement is per-segment, and
+// a merged result carries the union of the segments' sync samples.
+func diffTracks(a, b trackSig) []Field {
+	var f []Field
+	add := func(cond bool, name Field) {
+		if cond {
+			f = append(f, name)
+		}
+	}
+	add(a.kind != b.kind, FieldStreamType)
+	add(a.handler != b.handler, FieldHandler)
+	add(a.fourcc != b.fourcc, FieldFourCC)
+	add(a.width != b.width, FieldWidth)
+	add(a.height != b.height, FieldHeight)
+	add(a.rate != b.rate, FieldSampleRate)
+	add(a.chans != b.chans, FieldChannels)
+	add(a.ts != b.ts, FieldTimescale)
+	if a.config != b.config || !bytes.Equal(a.confDat, b.confDat) {
+		name := FieldConfig
+		if a.config == b.config && a.config != "" {
+			name = Field(a.config)
+		}
+		f = append(f, name)
+	}
+	add(a.matrix != b.matrix, FieldMatrix)
+	return f
+}
+
+// DifferText renders a list of differing fields: `field "avcC" differs` or
+// `fields "avcC", "mvhd timescale" differ`.
+func DifferText(f []Field) string {
+	quoted := make([]string, len(f))
+	for i, x := range f {
+		quoted[i] = fmt.Sprintf("%q", x)
+	}
+	if len(f) == 1 {
+		return "field " + quoted[0] + " differs"
+	}
+	return "fields " + strings.Join(quoted, ", ") + " differ"
+}
+
+// DiffMovies lists the fields in which two movies differ for stream-copy
+// compatibility: per track (paired by position), then the movie timescale.
+func DiffMovies(a, b *Movie) []Field {
+	sa, sb := movieSig(a), movieSig(b)
+	if len(sa) != len(sb) {
+		return []Field{FieldStreamCount}
+	}
+	var f []Field
+	for i := range sa {
+		f = append(f, diffTracks(sa[i], sb[i])...)
+	}
+	if a.Mvhd.Timescale != b.Mvhd.Timescale {
+		f = append(f, FieldMvhdTimescale)
+	}
+	return f
 }
 
 func (s trackSig) describe() string {
@@ -142,27 +213,11 @@ func Merge(movies []*Movie) (*Merged, error) {
 	if !hasVideoTrack(first) {
 		return nil, fmt.Errorf("%w: segment 1 has no video track", ErrUnsupported)
 	}
-	refSigs := movieSig(first)
 	// Compatibility: every segment must match the first, stream by stream.
-	var bad []string
 	for si, m := range movies[1:] {
-		if m.Mvhd.Timescale != first.Mvhd.Timescale {
-			bad = append(bad, fmt.Sprintf("  segment %d: movie timescale %d (want %d)", si+2, m.Mvhd.Timescale, first.Mvhd.Timescale))
-			continue
+		if f := DiffMovies(first, m); len(f) > 0 {
+			return nil, fmt.Errorf("%w: stream copy is impossible: %s (segment %d)", ErrIncompatible, DifferText(f), si+2)
 		}
-		if !sigsEqual(refSigs, movieSig(m)) {
-			bad = append(bad, fmt.Sprintf("  segment %d: %s", si+2, describeSigs(movieSig(m))))
-		}
-	}
-	if len(bad) > 0 {
-		lines := []string{fmt.Sprintf("  segment 1: %s", describeSigs(refSigs))}
-		if len(bad) > 5 {
-			lines = append(lines, bad[:5]...)
-			lines = append(lines, fmt.Sprintf("  ... and %d more", len(bad)-5))
-		} else {
-			lines = append(lines, bad...)
-		}
-		return nil, fmt.Errorf("%w: stream copy is impossible\n%s", ErrIncompatible, strings.Join(lines, "\n"))
 	}
 
 	n := len(first.Tracks)
@@ -188,7 +243,14 @@ func Merge(movies []*Movie) (*Merged, error) {
 	}
 	for ti := 0; ti < n; ti++ {
 		ref := first.Tracks[ti]
-		mt := &MergedTrack{ref: ref, hasSync: ref.HasSyncTable, hasCtts: ref.HasCtts, signedCT: ref.CttsSigned}
+		hasSync := false
+		for _, m := range movies {
+			if m.Tracks[ti].HasSyncTable {
+				hasSync = true
+				break
+			}
+		}
+		mt := &MergedTrack{ref: ref, hasSync: hasSync, hasCtts: ref.HasCtts, signedCT: ref.CttsSigned}
 		for si, m := range movies {
 			tr := m.Tracks[ti]
 			baseStart := m.Mdat[0].Start
@@ -201,8 +263,15 @@ func Merge(movies []*Movie) (*Merged, error) {
 				appendStsc(mt, e.FirstChunk+uint32(chunkShift), e.SamplesPerChunk, e.Description)
 			}
 			if mt.hasSync {
-				for _, s := range tr.SyncSamples {
-					mt.sync = append(mt.sync, s+uint32(sampleShift))
+				if tr.HasSyncTable {
+					for _, s := range tr.SyncSamples {
+						mt.sync = append(mt.sync, s+uint32(sampleShift))
+					}
+				} else {
+					// Without an stss table every sample is a sync sample.
+					for i := 1; i <= len(tr.SampleSizes); i++ {
+						mt.sync = append(mt.sync, uint32(i)+uint32(sampleShift))
+					}
 				}
 			}
 			for _, e := range tr.Ctts {

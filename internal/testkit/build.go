@@ -29,6 +29,15 @@ func bitsToBytes(s string) []byte {
 	return out
 }
 
+// BaselineSPS is the SPS used by default in synthetic segments.
+func BaselineSPS() []byte { return baselineSPS() }
+
+// defaultPPS is the PPS used by default in synthetic segments.
+var defaultPPS = []byte{0x27, 0x05, 0xeb}
+
+// DefaultPPS is the PPS used by default in synthetic segments.
+func DefaultPPS() []byte { return defaultPPS }
+
 // baselineSPS builds a minimal valid H.264 baseline SPS (320x240).
 func baselineSPS() []byte {
 	bits := ""
@@ -124,32 +133,69 @@ func esdsAAC(freqIdx byte, chans uint16) []byte {
 	return mp4.FullBox("esds", 0, 0, out)
 }
 
+// segConf holds the tunable fields of a synthetic segment.
+type segConf struct {
+	sps, pps []byte
+	mvTS     uint32
+	stss     []uint32
+}
+
+// SegOpt customizes one synthetic segment. Pass different opts to the
+// segments of a pair to make them differ in exactly one aspect.
+type SegOpt func(*segConf)
+
+// WithCodecConfig replaces the H.264 SPS/PPS carried in avcC. Pass the same
+// SPS with a changed PPS to diverge only the codec configuration bytes; a
+// changed SPS may also move the derived pixel format.
+func WithCodecConfig(sps, pps []byte) SegOpt {
+	return func(c *segConf) { c.sps, c.pps = sps, pps }
+}
+
+// WithMovieTimescale overrides the mvhd timescale.
+func WithMovieTimescale(ts uint32) SegOpt {
+	return func(c *segConf) { c.mvTS = ts }
+}
+
+// WithStss emits a sync sample table with the given 1-based sample numbers.
+// Without the option the segment has no stss box, like most Procreate
+// segments do.
+func WithStss(nums ...uint32) SegOpt {
+	return func(c *segConf) { c.stss = nums }
+}
+
 // Segment assembles a valid progressive two-track MP4: ftyp + moov + mdat.
 // The video track is baseline H.264 at w x h (timescale 30, 30 ticks/sample);
 // the audio track is AAC-LC 44100 Hz stereo (timescale 44100, 1024 ticks/
 // sample). Each track has one chunk. The mdat payload bytes vary with
 // position, so offset or length mistakes are visible in comparisons.
-func Segment(w, h uint16, videoSizes, audioSizes []uint32) []byte {
-	sps := baselineSPS()
-	pps := []byte{0x27, 0x05, 0xeb}
+// opts override individual fields (sync table, codec config, movie timescale).
+func Segment(w, h uint16, videoSizes, audioSizes []uint32, opts ...SegOpt) []byte {
+	c := &segConf{sps: baselineSPS(), pps: defaultPPS, mvTS: 30}
+	for _, o := range opts {
+		o(c)
+	}
 	vCount := uint32(len(videoSizes))
 	aCount := uint32(len(audioSizes))
 	vDur := uint64(vCount) * 30
 	aDur := uint64(aCount) * 1024
 
 	stsdV := mp4.FullBox("stsd", 0, 0, append([]byte{0, 0, 0, 1},
-		mp4.NewBox("avc1", videoEntry(w, h, avcC(sps, pps)))...))
+		mp4.NewBox("avc1", videoEntry(w, h, avcC(c.sps, c.pps)))...))
 	stsdA := mp4.FullBox("stsd", 0, 0, append([]byte{0, 0, 0, 1},
 		mp4.NewBox("mp4a", audioEntry(2, 44100, esdsAAC(4, 2)))...))
 
 	buildMoov := func(videoOff, audioOff uint64) []byte {
-		vStbl := mp4.Container("stbl",
+		vStblKids := [][]byte{
 			stsdV,
 			mp4.EncSTTS([]mp4.SttsEntry{{Count: vCount, Delta: 30}}),
 			mp4.EncSTSC([]mp4.StscEntry{{FirstChunk: 1, SamplesPerChunk: vCount, Description: 1}}),
 			mp4.EncSTSZ(videoSizes),
 			mp4.EncSTCO([]uint64{videoOff}, false),
-		)
+		}
+		if c.stss != nil {
+			vStblKids = append(vStblKids, mp4.EncSTSS(c.stss))
+		}
+		vStbl := mp4.Container("stbl", vStblKids...)
 		vTrak := mp4.Container("trak",
 			mp4.EncTKHD(1, vDur, w, h, 0x0100, identityMatrix),
 			mp4.Container("mdia",
@@ -173,7 +219,7 @@ func Segment(w, h uint16, videoSizes, audioSizes []uint32) []byte {
 				mp4.Container("minf", mp4.EncSMHD(), mp4.EncDINF(), aStbl),
 			),
 		)
-		return mp4.Container("moov", mp4.EncMVHD(30, vDur), vTrak, aTrak)
+		return mp4.Container("moov", mp4.EncMVHD(c.mvTS, vDur), vTrak, aTrak)
 	}
 
 	var vTotal, aTotal int
@@ -250,6 +296,14 @@ func WriteArchive(t *testing.T, entries map[string][]byte, compress bool) string
 // buffer is kept. It returns the file path and the total uncompressed
 // media (mdat payload) size.
 func WriteSegmentArchive(t *testing.T, n int, compress bool, videoSizes, audioSizes []uint32) (string, int64) {
+	return WriteSegmentArchiveOpts(t, n, compress, videoSizes, audioSizes, nil)
+}
+
+// WriteSegmentArchiveOpts is like WriteSegmentArchive, but applies perSeg
+// (indexed by segment number minus one, nil entries mean defaults) to make
+// individual segments differ.
+func WriteSegmentArchiveOpts(t *testing.T, n int, compress bool, videoSizes, audioSizes []uint32,
+	perSeg [][]SegOpt) (string, int64) {
 	t.Helper()
 	p := filepath.Join(t.TempDir(), "segments.procreate")
 	f, err := os.Create(p)
@@ -267,7 +321,11 @@ func WriteSegmentArchive(t *testing.T, n int, compress bool, videoSizes, audioSi
 	}
 	var media int64
 	for i := 1; i <= n; i++ {
-		seg := Segment(320, 240, videoSizes, audioSizes)
+		var o []SegOpt
+		if perSeg != nil && i <= len(perSeg) {
+			o = perSeg[i-1]
+		}
+		seg := Segment(320, 240, videoSizes, audioSizes, o...)
 		w, err := zw.CreateHeader(&zip.FileHeader{
 			Name:     fmt.Sprintf("video/segments/segment-%04d.mp4", i),
 			Method:   method,

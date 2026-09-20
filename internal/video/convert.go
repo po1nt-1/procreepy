@@ -126,31 +126,52 @@ func humanBytes(n int64) string {
 	return fmt.Sprintf("%d %ciB", int64(s), "KMGTPE"[exp])
 }
 
-// checkCompatibility raises IncompatibleError with the original tool's
-// diagnostic when any segment differs from the first one.
+// checkCompatibility raises IncompatibleError, naming the differing fields,
+// when any segment differs from the first one.
 func checkCompatibility(segs []procreate.Segment, movies []*mp4.Movie) error {
 	if len(movies) < 2 {
 		return nil
 	}
 	ref := movies[0]
-	var bad []int
+	var (
+		segments []string
+		fields   []mp4.Field
+		lines    []string
+	)
 	for i := 1; i < len(movies); i++ {
-		if !mp4.SameStreams(ref, movies[i]) || movies[i].Mvhd.Timescale != ref.Mvhd.Timescale {
-			bad = append(bad, i)
+		d := mp4.DiffMovies(ref, movies[i])
+		if len(d) == 0 {
+			continue
 		}
+		if len(segments) == 0 {
+			segments = append(segments, segs[0].Name)
+		}
+		segments = append(segments, segs[i].Name)
+		for _, f := range d {
+			if !hasField(fields, f) {
+				fields = append(fields, f)
+			}
+		}
+		lines = append(lines, fmt.Sprintf("incompatible segments %q and %q: %s",
+			segs[0].Name, segs[i].Name, mp4.DifferText(d)))
 	}
-	if len(bad) == 0 {
+	if len(lines) == 0 {
 		return nil
 	}
-	lines := []string{fmt.Sprintf("  %s: %s", segs[0].Name, ref.StreamsSummary())}
-	for i := 0; i < len(bad) && i < 5; i++ {
-		lines = append(lines, fmt.Sprintf("  %s: %s", segs[bad[i]].Name, movies[bad[i]].StreamsSummary()))
+	return &IncompatibleError{
+		Msg:      strings.Join(lines, "\n"),
+		Segments: segments,
+		Fields:   fields,
 	}
-	if len(bad) > 5 {
-		lines = append(lines, fmt.Sprintf("  ... and %d more", len(bad)-5))
+}
+
+func hasField(fields []mp4.Field, f mp4.Field) bool {
+	for _, x := range fields {
+		if x == f {
+			return true
+		}
 	}
-	return &IncompatibleError{Msg: "segments have different stream parameters, so they cannot be " +
-		"joined with stream copy (-c copy):\n" + strings.Join(lines, "\n")}
+	return false
 }
 
 // writeOut emits ftyp+moov+mdat(s) to the resolved destination.

@@ -3,7 +3,6 @@ package e2e
 import (
 	"archive/zip"
 	"bytes"
-	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -182,15 +181,13 @@ func TestIncompatible(t *testing.T) {
 		"video/segments/segment-2.mp4": b,
 	}
 	writeArchive(t, dir, "in.procreate", entries)
-	sumA, sumB := streamsOf(t, a), streamsOf(t, b)
-	if sumA == sumB {
-		t.Fatalf("test fixture bug: summaries should differ (%q)", sumA)
+	if streamsOf(t, a) == streamsOf(t, b) {
+		t.Fatal("test fixture bug: summaries should differ")
 	}
 	check(t, run(t, dir, nil, "in.procreate", "out.mp4"), 7, "",
 		slogLine(slog.LevelInfo, "segments found", "input", "in.procreate", "count", 2)+
-			actionErr("segments have different stream parameters, so they cannot be joined with stream copy (-c copy):\n"+
-				fmt.Sprintf("  video/segments/segment-1.mp4: %s\n", sumA)+
-				fmt.Sprintf("  video/segments/segment-2.mp4: %s", sumB)))
+			actionErr("incompatible segments \"video/segments/segment-1.mp4\" and "+
+				"\"video/segments/segment-2.mp4\": field \"height\" differs"))
 	if _, err := os.Stat(filepath.Join(dir, "out.mp4")); !os.IsNotExist(err) {
 		t.Error("out.mp4 should not exist")
 	}

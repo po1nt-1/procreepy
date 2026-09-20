@@ -1,5 +1,7 @@
 package video
 
+import "procreepy/internal/mp4"
+
 // Error kinds. The CLI layer maps them onto exit codes:
 // UsageError -> 2, IncompatibleError -> 7, WriteError -> 9.
 // (procreate sentinels map to 3/4/5; anything else maps to 1.)
@@ -10,7 +12,13 @@ type UsageError struct{ Msg string }
 func (e *UsageError) Error() string { return e.Msg }
 
 // IncompatibleError: the segments cannot be joined with stream copy.
-type IncompatibleError struct{ Msg string }
+// Segments and Fields are the structured fact; Msg is their human-readable
+// rendering, one line per offending segment.
+type IncompatibleError struct {
+	Msg      string
+	Segments []string    // reference segment first, then the offenders
+	Fields   []mp4.Field // differing fields, first-occurrence order
+}
 
 func (e *IncompatibleError) Error() string { return e.Msg }
 

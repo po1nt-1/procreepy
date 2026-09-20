@@ -199,7 +199,10 @@ func TestIncompatible(t *testing.T) {
 	if code != 7 {
 		t.Fatalf("code = %d, want 7 (stderr: %s)", code, errOut)
 	}
-	if !strings.Contains(errOut, "different stream parameters") {
+	// The e2e suite pins the message byte-for-byte; here we only check the
+	// shape (slog escapes the embedded quotes in the raw log line).
+	if !strings.Contains(errOut, "incompatible segments") ||
+		!strings.Contains(errOut, "differ\"") {
 		t.Fatalf("stderr:\n%s", errOut)
 	}
 }

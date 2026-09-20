@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"syscall"
 	"testing"
@@ -153,15 +154,12 @@ func TestConvertIncompatible(t *testing.T) {
 	if !errors.As(err, &inc) {
 		t.Fatalf("err = %v, want IncompatibleError", err)
 	}
-	msg := err.Error()
-	for _, want := range []string{
-		"segments have different stream parameters",
-		"video/segments/segment-1.mp4: video h264 320x240 yuv420p",
-		"video/segments/segment-2.mp4: video h264 640x480 yuv420p",
-	} {
-		if !strings.Contains(msg, want) {
-			t.Errorf("message missing %q:\n%s", want, msg)
-		}
+	wantMsg := `incompatible segments "video/segments/segment-1.mp4" and "video/segments/segment-2.mp4": fields "width", "height" differ`
+	if msg := err.Error(); msg != wantMsg {
+		t.Errorf("message = %q, want %q", msg, wantMsg)
+	}
+	if want := []mp4.Field{"width", "height"}; !reflect.DeepEqual(inc.Fields, want) {
+		t.Errorf("Fields = %v, want %v", inc.Fields, want)
 	}
 }
 

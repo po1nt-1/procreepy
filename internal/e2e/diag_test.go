@@ -132,9 +132,8 @@ func TestVerifyIncompatible(t *testing.T) {
 		fmt.Sprintf("1 ok    %s  2.00s  video/segments/segment-1.mp4\n", sumA) +
 		fmt.Sprintf("2 ok    %s  2.00s  video/segments/segment-2.mp4\n", sumB)
 	check(t, run(t, dir, nil, "--verify", "in.procreate"), 7, wantOut,
-		actionErr("segments have different stream parameters, so they cannot be joined with stream copy (-c copy):\n"+
-			fmt.Sprintf("  video/segments/segment-1.mp4: %s\n", sumA)+
-			fmt.Sprintf("  video/segments/segment-2.mp4: %s", sumB)))
+		actionErr("incompatible segments \"video/segments/segment-1.mp4\" and "+
+			"\"video/segments/segment-2.mp4\": field \"height\" differs"))
 }
 
 func TestVerifyDirectoryMixed(t *testing.T) {
