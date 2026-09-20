@@ -25,6 +25,10 @@ jobs:
         tar -C "$HOME/bin" -xzf /tmp/goreleaser.tar.gz goreleaser
         echo "$HOME/bin" >> "$GITHUB_PATH"
     - name: release
+      # The origin remote is this GitHub repository, so goreleaser targets
+      # GitHub and authenticates with GITHUB_TOKEN — one release per tag on
+      # this host; the GitLab release for the same tag comes from the tag
+      # pipeline there.
       run: goreleaser release --clean
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

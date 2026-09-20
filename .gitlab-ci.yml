@@ -149,9 +149,11 @@ repro:compare:
     - cmp repro-glibc.sha256 repro-musl.sha256
     - 'echo "reproducible: $(cat repro-glibc.sha256) (glibc == musl)"'
 
-# Decides from Conventional Commits whether a new version is due; if so it
-# commits and pushes a git tag. Runs once, on the primary host: the tag it
-# produces is what both hosts publish releases from.
+# Decides from Conventional Commits whether a new version is due. No release
+# commit is created (assets: []), so nothing extra lands on main; the
+# semantic-release core itself creates the vX.Y.Z tag (tagFormat default) and
+# pushes it to origin with the runner's git credentials. That one tag is the
+# single input both hosts' goreleaser jobs publish from.
 release:
   stage: release
   image: node:22-bookworm
@@ -167,13 +169,12 @@ release:
   script:
     - npm install --no-save --no-audit --no-fund semantic-release@25.0.9 @semantic-release/git@11.0.1 conventional-changelog-conventionalcommits@8.0.0
     - npx --no-install semantic-release
-    # the git plugin commits and tags locally but does not push
-    - git remote set-url origin "https://oauth2:${GITLAB_TOKEN}@${CI_REPOSITORY_URL#*://}"
-    - git push origin HEAD:main --follow-tags
 
-# Publishes the tag created by the release job. GoReleaser derives the
-# platform from the origin remote, so this job (origin = GitLab) publishes
-# the GitLab Release using GITLAB_TOKEN only.
+# Publishes the tag as a GitLab Release. GoReleaser resolves the target
+# platform from the origin remote (here: GitLab) and authenticates with the
+# GITLAB_TOKEN project variable, so the same tag yields exactly one release
+# per host — a re-run of this pipeline errors on the existing release
+# instead of duplicating it.
 goreleaser:
   stage: release
   image: $GO_IMAGE
