@@ -33,7 +33,7 @@ func TestConvertSplit(t *testing.T) {
 	out := filepath.Join(dir, "out.mp4")
 	slim := filepath.Join(dir, "out.procreepy.procreate")
 
-	if _, err := Convert(context.Background(), quietLog(), in,
+	if _, err := Convert(context.Background(), discardLog(), in,
 		Output{Kind: OutFile, Path: out, Name: out}, Config{Split: true}, true); err != nil {
 		t.Fatalf("convert: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestConvertSplit(t *testing.T) {
 
 func TestConvertSplitStdoutRejected(t *testing.T) {
 	in := twoSegArchive(t, false)
-	_, err := Convert(context.Background(), quietLog(), in, Output{Kind: OutStdout},
+	_, err := Convert(context.Background(), discardLog(), in, Output{Kind: OutStdout},
 		Config{Split: true}, true)
 	var ue *UsageError
 	if !errors.As(err, &ue) {

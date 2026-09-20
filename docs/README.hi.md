@@ -108,12 +108,12 @@ input/                           output/timelaps/
 उदाहरण आउटपुट (सब stderr पर जाता है):
 
 ```text
-info: 4 .procreate file(s) in input -> output/timelaps/
-info: [1/4] input/Landscape v2.procreate -> output/timelaps/Landscape v2.mp4
-warning: [2/4] input/No Timelapse.procreate: no timelapse video inside, skipped
-error: [3/4] input/Corrupt file.procreate: input is not a valid ZIP archive ...
-info: [4/4] input/Portrait of a Cat.procreate -> output/timelaps/Portrait of a Cat.mp4
-info: summary: 2 converted, 1 without timelapse, 1 FAILED
+level=INFO msg="batch conversion started" files=4 input=input output=output/timelaps/
+level=ERROR msg="file conversion failed" input="input/Corrupt file.procreate" err="input is not a valid ZIP archive: input/Corrupt file.procreate (not a .procreate file, or truncated/corrupted)"
+level=INFO msg=converted input="input/Landscape v2.procreate" output="output/timelaps/Landscape v2.mp4"
+level=WARN msg="no timelapse video inside, skipped" input="input/No Timelapse.procreate"
+level=INFO msg=converted input="input/Portrait of a Cat.procreate" output="output/timelaps/Portrait of a Cat.mp4"
+level=INFO msg="batch completed" converted=2 existed=0 no_video=1 failed=1
 ```
 
 `--list` और `--verify` भी फ़ोल्डर स्वीकार करती हैं और सभी फ़ाइलों पर
@@ -208,8 +208,9 @@ players और editors दोनों के लिए उपयुक्त; �
 - **फ़ाइल** आउटपुट atomic है: target के बगल में `.partial`, सिर्फ सफलता
   के बाद rename। असफल चाली अवशेष नहीं छोड़ती और मौजूदा फ़ाइल कभी ख़राब
   नहीं करती।
-- stdout कभी text से नहीं पसता। सभी `info:`/`warning:`/`error:` लाइनें
-  stderr पर जाती हैं। अकेला अपवाद `--list`/`--verify` की रिपोर्ट है, जहाँ
+- stdout कभी text से नहीं पसता। सभी संरचित `level=INFO`/`WARN`/`ERROR`
+  लाइनें (हर event के लिए एक key=value लाइन) stderr पर जाती हैं।
+  अकेला अपवाद `--list`/`--verify` की रिपोर्ट है, जहाँ
   stdout *ही* परिणाम है। अगर stdout टर्मिनल है, तो यूटिलिटी वहाँ binary
   MP4 डालने से इनकार दे देती है।
 

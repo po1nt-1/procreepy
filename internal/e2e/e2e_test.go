@@ -6,7 +6,9 @@ package e2e
 
 import (
 	"bytes"
+	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -250,9 +252,88 @@ func usageErr(msg string) string {
 }
 
 // actionErr renders the single-line stderr of an error raised after argument
-// parsing (dispatch/convert stage): no usage banner, no prog prefix.
+// parsing (dispatch/convert stage): no usage banner, no prog prefix. The
+// application logs it as one ERROR record whose message is err.Error().
 func actionErr(msg string) string {
-	return "error: " + msg + "\n"
+	return slogLine(slog.LevelError, msg)
+}
+
+// slogLine renders one log record through the same slog TextHandler the
+// application installs on stderr (timestamps suppressed), so expected values
+// match the real output byte-for-byte regardless of quoting/escaping rules.
+// kv is a flat run of key, value pairs.
+func slogLine(level slog.Level, msg string, kv ...any) string {
+	var b bytes.Buffer
+	h := slog.NewTextHandler(&b, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+		ReplaceAttr: func(_ []string, a slog.Attr) slog.Attr {
+			if a.Key == "time" {
+				return slog.Attr{}
+			}
+			return a
+		},
+	})
+	rec := slog.NewRecord(time.Time{}, level, msg, 0)
+	for i := 0; i+1 < len(kv); i += 2 {
+		rec.AddAttrs(slog.Any(kv[i].(string), kv[i+1]))
+	}
+	if err := h.Handle(context.Background(), rec); err != nil {
+		panic(err)
+	}
+	return b.String()
+}
+
+// chattyBlock renders the three INFO lines a single-file conversion prints:
+// the scan, the join, and the completion.
+func chattyBlock(input string, count int, output string, secs float64) string {
+	return slogLine(slog.LevelInfo, "segments found", "input", input, "count", count) +
+		slogLine(slog.LevelInfo, "joining segments (stream copy)") +
+		slogLine(slog.LevelInfo, "conversion completed", "output", output, "duration_s", secs)
+}
+
+// gapWarn renders the missing-segment-number warning.
+func gapWarn(missing string) string {
+	return slogLine(slog.LevelWarn, "segment numbers missing: "+missing+" (the video would have gaps)")
+}
+
+// strayWarn renders the "ignoring <member>: name does not match" warning.
+func strayWarn(member string) string {
+	return slogLine(slog.LevelWarn, "ignoring "+member+": name does not match segment-<number>.mp4")
+}
+
+// batchStart renders the batch-mode header line.
+func batchStart(files int, inDir, outDir string) string {
+	return slogLine(slog.LevelInfo, "batch conversion started", "files", files, "input", inDir, "output", outDir+"/")
+}
+
+// batchConverted renders one successful per-file conversion line.
+func batchConverted(src, dst string) string {
+	return slogLine(slog.LevelInfo, "converted", "input", src, "output", dst)
+}
+
+// batchSkipped renders the skip (already exists) per-file line.
+func batchSkipped(src, dst string) string {
+	return slogLine(slog.LevelInfo, "skipped, output already exists (use --force to overwrite)", "input", src, "output", dst)
+}
+
+// batchNoVideo renders the soft-skip line for an archive without a timelapse.
+func batchNoVideo(src string) string {
+	return slogLine(slog.LevelWarn, "no timelapse video inside, skipped", "input", src)
+}
+
+// batchFailed renders the per-file failure line (errMsg is err.Error()).
+func batchFailed(src, errMsg string) string {
+	return slogLine(slog.LevelError, "file conversion failed", "input", src, "err", errMsg)
+}
+
+// batchDone renders the batch summary line.
+func batchDone(converted, existed, noVideo, failed int) string {
+	return slogLine(slog.LevelInfo, "batch completed", "converted", converted, "existed", existed, "no_video", noVideo, "failed", failed)
+}
+
+// batchSlimmed renders the --split per-file slimmed-archive line.
+func batchSlimmed(path string, removedFiles int, size int64) string {
+	return slogLine(slog.LevelInfo, "slimmed archive written", "path", path, "removed_files", removedFiles, "video_size", humanBytes(size))
 }
 
 // diffStrings renders a human diff for small string mismatches.

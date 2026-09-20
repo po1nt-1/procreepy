@@ -145,7 +145,7 @@ func TestMissingInput(t *testing.T) {
 	if code != 3 {
 		t.Fatalf("code = %d, want 3 (stderr: %s)", code, errOut)
 	}
-	if !strings.Contains(errOut, "error: input does not exist: nope.procreate") {
+	if !strings.Contains(errOut, `level=ERROR msg="input does not exist: nope.procreate"`) {
 		t.Fatalf("stderr:\n%s", errOut)
 	}
 }
@@ -183,7 +183,7 @@ func TestBadSegment(t *testing.T) {
 	if code != 5 {
 		t.Fatalf("code = %d, want 5 (stderr: %s)", code, errOut)
 	}
-	if !strings.Contains(errOut, "error: ") {
+	if !strings.Contains(errOut, `level=ERROR msg=`) {
 		t.Fatalf("stderr:\n%s", errOut)
 	}
 }
@@ -248,8 +248,8 @@ func TestQuietSuppressesInfo(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code = %d, want 0 (stderr: %s)", code, errOut)
 	}
-	if strings.Contains(errOut, "info:") {
-		t.Fatalf("quiet mode printed info lines:\n%s", errOut)
+	if errOut != "" {
+		t.Fatalf("quiet mode printed diagnostics (Info is suppressed, nothing else expected):\n%s", errOut)
 	}
 }
 

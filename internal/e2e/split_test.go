@@ -2,8 +2,8 @@ package e2e
 
 import (
 	"archive/zip"
-	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
@@ -48,11 +48,11 @@ func TestSplitFile(t *testing.T) {
 	writeArchive(t, dir, "in.procreate", stdThree())
 	removed := int64(len(segN(1)) + len(segN(2)) + len(segN(3)))
 	slim := filepath.Join(dir, "out.procreepy.procreate")
-	wantErr := "info: in.procreate: 3 segment(s)\n" +
-		"info: joining segments (stream copy)\n" +
-		fmt.Sprintf("info: slimmed archive -> %s (removed 4 video file(s), ~%s of video)\n",
-			slim, humanBytes(removed)) +
-		"info: done: out.mp4 (~6.0 s of video)\n"
+	wantErr := slogLine(slog.LevelInfo, "segments found", "input", "in.procreate", "count", 3) +
+		slogLine(slog.LevelInfo, "joining segments (stream copy)") +
+		slogLine(slog.LevelInfo, "slimmed archive written", "path", slim, "removed_files", 4,
+			"video_size", humanBytes(removed)) +
+		slogLine(slog.LevelInfo, "conversion completed", "output", "out.mp4", "duration_s", 6.0)
 	check(t, run(t, dir, nil, "--split", "in.procreate", "out.mp4"), 0, "", wantErr)
 	eqBytes(t, "out.mp4", readAll(t, filepath.Join(dir, "out.mp4")),
 		expectedMP4(t, segN(1), segN(2), segN(3)))
@@ -104,11 +104,11 @@ func TestSplitToDirectory(t *testing.T) {
 	}
 	removed := int64(len(segN(1)) + len(segN(2)) + len(segN(3)))
 	slim := filepath.Join(dir, "out", "in.procreepy.procreate")
-	wantErr := "info: in.procreate: 3 segment(s)\n" +
-		"info: joining segments (stream copy)\n" +
-		fmt.Sprintf("info: slimmed archive -> %s (removed 4 video file(s), ~%s of video)\n",
-			slim, humanBytes(removed)) +
-		"info: done: out/in.mp4 (~6.0 s of video)\n"
+	wantErr := slogLine(slog.LevelInfo, "segments found", "input", "in.procreate", "count", 3) +
+		slogLine(slog.LevelInfo, "joining segments (stream copy)") +
+		slogLine(slog.LevelInfo, "slimmed archive written", "path", slim, "removed_files", 4,
+			"video_size", humanBytes(removed)) +
+		slogLine(slog.LevelInfo, "conversion completed", "output", "out/in.mp4", "duration_s", 6.0)
 	check(t, run(t, dir, nil, "--split", "in.procreate", "out"), 0, "", wantErr)
 	eqBytes(t, "out/in.mp4", readAll(t, filepath.Join(dir, "out", "in.mp4")),
 		expectedMP4(t, segN(1), segN(2), segN(3)))
@@ -150,7 +150,7 @@ func TestSplitNoVideo(t *testing.T) {
 	}
 	writeArchive(t, dir, "in.procreate", entries)
 	check(t, run(t, dir, nil, "--split", "in.procreate", "out.mp4"), 4, "",
-		"error: no video/segments in this archive (time-lapse recording was probably turned off for this artwork)\n")
+		actionErr("no video/segments in this archive (time-lapse recording was probably turned off for this artwork)"))
 	if _, err := os.Stat(filepath.Join(dir, "out.mp4")); !os.IsNotExist(err) {
 		t.Error("out.mp4 should not exist")
 	}

@@ -108,12 +108,12 @@ input/                             output/timelaps/
 Saída de exemplo (tudo vai para o stderr):
 
 ```text
-info: 4 .procreate file(s) in input -> output/timelaps/
-info: [1/4] input/Landscape v2.procreate -> output/timelaps/Landscape v2.mp4
-warning: [2/4] input/No Timelapse.procreate: no timelapse video inside, skipped
-error: [3/4] input/Corrupt file.procreate: input is not a valid ZIP archive ...
-info: [4/4] input/Portrait of a Cat.procreate -> output/timelaps/Portrait of a Cat.mp4
-info: summary: 2 converted, 1 without timelapse, 1 FAILED
+level=INFO msg="batch conversion started" files=4 input=input output=output/timelaps/
+level=ERROR msg="file conversion failed" input="input/Corrupt file.procreate" err="input is not a valid ZIP archive: input/Corrupt file.procreate (not a .procreate file, or truncated/corrupted)"
+level=INFO msg=converted input="input/Landscape v2.procreate" output="output/timelaps/Landscape v2.mp4"
+level=WARN msg="no timelapse video inside, skipped" input="input/No Timelapse.procreate"
+level=INFO msg=converted input="input/Portrait of a Cat.procreate" output="output/timelaps/Portrait of a Cat.mp4"
+level=INFO msg="batch completed" converted=2 existed=0 no_video=1 failed=1
 ```
 
 `--list` e `--verify` também aceitam um diretório e percorrem todos os
@@ -211,8 +211,9 @@ arquivo exato vai para o pipe — `> artwork.mp4` dá o mesmo resultado que um
 - Saída para **arquivo** é atômica: um `.partial` ao lado do alvo,
   renomeado somente após o sucesso. Uma execução falha não deixa restos e
   nunca corrompe um arquivo existente.
-- O stdout nunca é sujo com texto. Todas as linhas `info:`/`warning:`/
-  `error:` vão para o stderr. A única exceção é o relatório
+- O stdout nunca é sujo com texto. Todos os registros
+  `level=INFO`/`WARN`/`ERROR` (um registro estruturado key=value por linha)
+  vão para o stderr. A única exceção é o relatório
   `--list`/`--verify`, onde o stdout *é* o resultado. Se o stdout é um
   terminal, a utilidade se recusa a despejar um MP4 binário nele.
 

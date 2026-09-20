@@ -10,7 +10,6 @@ import (
 	"syscall"
 
 	"procreepy/internal/procreate"
-	"procreepy/internal/ui"
 )
 
 // Config tunes an operation. Reencode is accepted for command-line
@@ -38,8 +37,7 @@ func (r *resolvedInput) close() {
 // resolveInput returns (seekable path, label). stdin ("-") and non-regular
 // files (pipes, process substitution) are spooled to a temp file, because a
 // ZIP needs random access.
-func resolveInput(arg string, log *ui.Log, cfg Config) (*resolvedInput, error) {
-	_ = log
+func resolveInput(arg string, cfg Config) (*resolvedInput, error) {
 	if arg == "-" {
 		if os.Stdin == nil {
 			return nil, &procreate.InputError{Msg: "stdin is not available"}

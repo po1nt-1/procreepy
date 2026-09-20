@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,10 +15,11 @@ import (
 	"procreepy/internal/mp4"
 	"procreepy/internal/procreate"
 	"procreepy/internal/testkit"
-	"procreepy/internal/ui"
 )
 
-func quietLog() *ui.Log { return &ui.Log{Out: io.Discard, Quiet: true} }
+// discardLog is a logger that swallows everything (unit tests don't care
+// about the human-readable output).
+func discardLog() *slog.Logger { return slog.New(slog.DiscardHandler) }
 
 func twoSegArchive(t *testing.T, compress bool) string {
 	t.Helper()
@@ -83,7 +85,7 @@ func TestConvertToFileStored(t *testing.T) {
 	in := twoSegArchive(t, false)
 	out := filepath.Join(t.TempDir(), "out.mp4")
 	o := Output{Kind: OutFile, Path: out, Name: out}
-	dur, err := Convert(context.Background(), quietLog(), in, o, Config{}, true)
+	dur, err := Convert(context.Background(), discardLog(), in, o, Config{}, true)
 	if err != nil {
 		t.Fatalf("convert: %v", err)
 	}
@@ -103,7 +105,7 @@ func TestConvertToFileStored(t *testing.T) {
 func TestConvertToFileDeflated(t *testing.T) {
 	in := twoSegArchive(t, true)
 	out := filepath.Join(t.TempDir(), "out.mp4")
-	if _, err := Convert(context.Background(), quietLog(), in, Output{Kind: OutFile, Path: out, Name: out},
+	if _, err := Convert(context.Background(), discardLog(), in, Output{Kind: OutFile, Path: out, Name: out},
 		Config{}, false); err != nil {
 		t.Fatalf("convert: %v", err)
 	}
@@ -117,7 +119,7 @@ func TestConvertOverwritesExisting(t *testing.T) {
 	if err := os.WriteFile(out, []byte("junk"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Convert(context.Background(), quietLog(), in, Output{Kind: OutFile, Path: out, Name: out},
+	if _, err := Convert(context.Background(), discardLog(), in, Output{Kind: OutFile, Path: out, Name: out},
 		Config{}, false); err != nil {
 		t.Fatalf("convert: %v", err)
 	}
@@ -130,7 +132,7 @@ func TestConvertOverwritesExisting(t *testing.T) {
 func TestConvertSameFile(t *testing.T) {
 	in := twoSegArchive(t, false)
 	var ue *UsageError
-	_, err := Convert(context.Background(), quietLog(), in, Output{Kind: OutFile, Path: in, Name: in},
+	_, err := Convert(context.Background(), discardLog(), in, Output{Kind: OutFile, Path: in, Name: in},
 		Config{}, false)
 	if !errors.As(err, &ue) {
 		t.Fatalf("err = %v, want UsageError", err)
@@ -147,7 +149,7 @@ func TestConvertIncompatible(t *testing.T) {
 	}
 	in := testkit.WriteArchive(t, entries, false)
 	var inc *IncompatibleError
-	_, err := Convert(context.Background(), quietLog(), in, Output{Kind: OutStdout}, Config{}, false)
+	_, err := Convert(context.Background(), discardLog(), in, Output{Kind: OutStdout}, Config{}, false)
 	if !errors.As(err, &inc) {
 		t.Fatalf("err = %v, want IncompatibleError", err)
 	}
@@ -169,7 +171,7 @@ func TestConvertBadSegment(t *testing.T) {
 		"video/segments/segment-2.mp4": []byte("garbage, not an MP4"),
 	}
 	in := testkit.WriteArchive(t, entries, false)
-	_, err := Convert(context.Background(), quietLog(), in, Output{Kind: OutStdout}, Config{}, false)
+	_, err := Convert(context.Background(), discardLog(), in, Output{Kind: OutStdout}, Config{}, false)
 	if !errors.Is(err, procreate.ErrBadSegment) {
 		t.Fatalf("err = %v, want ErrBadSegment", err)
 	}
@@ -177,14 +179,14 @@ func TestConvertBadSegment(t *testing.T) {
 
 func TestConvertNoSegments(t *testing.T) {
 	in := testkit.WriteArchive(t, map[string][]byte{"Document.data": {1, 2, 3}}, false)
-	_, err := Convert(context.Background(), quietLog(), in, Output{Kind: OutStdout}, Config{}, false)
+	_, err := Convert(context.Background(), discardLog(), in, Output{Kind: OutStdout}, Config{}, false)
 	if !errors.Is(err, procreate.ErrNoSegments) {
 		t.Fatalf("err = %v, want ErrNoSegments", err)
 	}
 }
 
 func TestConvertMissingInput(t *testing.T) {
-	_, err := Convert(context.Background(), quietLog(), "/nope/none.procreate",
+	_, err := Convert(context.Background(), discardLog(), "/nope/none.procreate",
 		Output{Kind: OutStdout}, Config{}, false)
 	if !errors.Is(err, procreate.ErrInput) {
 		t.Fatalf("err = %v, want ErrInput", err)
@@ -195,7 +197,7 @@ func TestConvertNonexistentOutputDir(t *testing.T) {
 	in := twoSegArchive(t, false)
 	o := Output{Kind: OutFile, Path: filepath.Join(t.TempDir(), "no", "such", "dir", "x.mp4"), Name: "x.mp4"}
 	var we *WriteError
-	_, err := Convert(context.Background(), quietLog(), in, o, Config{}, false)
+	_, err := Convert(context.Background(), discardLog(), in, o, Config{}, false)
 	if !errors.As(err, &we) {
 		t.Fatalf("err = %v, want WriteError", err)
 	}
@@ -258,7 +260,7 @@ func TestListReport(t *testing.T) {
 		"video/segments/segment-10.mp4": testkit.Segment(320, 240, []uint32{100}, []uint32{50}),
 	}
 	in := testkit.WriteArchive(t, entries, false)
-	report, err := List(context.Background(), quietLog(), in, Config{})
+	report, err := List(context.Background(), discardLog(), in, Config{})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -274,7 +276,7 @@ func TestListReport(t *testing.T) {
 
 func TestListEmpty(t *testing.T) {
 	in := testkit.WriteArchive(t, map[string][]byte{"x": {1}}, false)
-	report, err := List(context.Background(), quietLog(), in, Config{})
+	report, err := List(context.Background(), discardLog(), in, Config{})
 	if !errors.Is(err, procreate.ErrNoSegments) {
 		t.Fatalf("err = %v, want ErrNoSegments", err)
 	}
@@ -286,7 +288,7 @@ func TestListEmpty(t *testing.T) {
 
 func TestVerifyOk(t *testing.T) {
 	in := twoSegArchive(t, false)
-	report, err := Verify(context.Background(), quietLog(), in, Config{})
+	report, err := Verify(context.Background(), discardLog(), in, Config{})
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
@@ -308,7 +310,7 @@ func TestVerifyBadSegment(t *testing.T) {
 		"video/segments/segment-2.mp4": []byte("garbage"),
 	}
 	in := testkit.WriteArchive(t, entries, false)
-	report, err := Verify(context.Background(), quietLog(), in, Config{})
+	report, err := Verify(context.Background(), discardLog(), in, Config{})
 	if !errors.Is(err, procreate.ErrBadSegment) {
 		t.Fatalf("err = %v, want ErrBadSegment", err)
 	}
@@ -327,7 +329,7 @@ func TestVerifyIncompatible(t *testing.T) {
 	}
 	in := testkit.WriteArchive(t, entries, false)
 	var inc *IncompatibleError
-	_, err := Verify(context.Background(), quietLog(), in, Config{})
+	_, err := Verify(context.Background(), discardLog(), in, Config{})
 	if !errors.As(err, &inc) {
 		t.Fatalf("err = %v, want IncompatibleError", err)
 	}
@@ -354,7 +356,7 @@ func TestListViaStdin(t *testing.T) {
 		"video/segments/segment-1.mp4": testkit.Segment(320, 240, []uint32{100}, []uint32{50}),
 	}
 	stdinPipe(t, testkit.ArchiveBytes(entries, false))
-	report, err := List(context.Background(), quietLog(), "-", Config{})
+	report, err := List(context.Background(), discardLog(), "-", Config{})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -366,7 +368,7 @@ func TestListViaStdin(t *testing.T) {
 
 func TestSpoolEmptyStdin(t *testing.T) {
 	stdinPipe(t, nil)
-	_, err := List(context.Background(), quietLog(), "-", Config{})
+	_, err := List(context.Background(), discardLog(), "-", Config{})
 	if !errors.Is(err, procreate.ErrInput) {
 		t.Fatalf("err = %v, want ErrInput", err)
 	}

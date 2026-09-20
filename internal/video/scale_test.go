@@ -30,7 +30,7 @@ func TestConvertLargeArchive(t *testing.T) {
 	runtime.ReadMemStats(&before)
 
 	out := filepath.Join(t.TempDir(), "big.mp4")
-	dur, err := Convert(context.Background(), quietLog(), in,
+	dur, err := Convert(context.Background(), discardLog(), in,
 		Output{Kind: OutFile, Path: out, Name: out}, Config{}, false)
 	if err != nil {
 		t.Fatalf("convert: %v", err)

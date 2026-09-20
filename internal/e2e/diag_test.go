@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -37,7 +38,7 @@ func TestListGapWarning(t *testing.T) {
 	check(t, run(t, dir, nil, "--list", "in.procreate"), 0,
 		"input: in.procreate\nsegments: 2\n\n"+
 			"1 video/segments/segment-1.mp4\n3 video/segments/segment-3.mp4\n",
-		"warning: segment numbers missing: 2 (the video would have gaps)\n")
+		gapWarn("2"))
 }
 
 func TestListIgnoredStray(t *testing.T) {
@@ -51,7 +52,7 @@ func TestListIgnoredStray(t *testing.T) {
 			"1 video/segments/segment-1.mp4\n"+
 			"2 video/segments/segment-2.mp4\n"+
 			"3 video/segments/segment-3.mp4\n",
-		"warning: ignoring video/segments/thumb.mp4: name does not match segment-<number>.mp4\n")
+		strayWarn("video/segments/thumb.mp4"))
 }
 
 // --strict has no effect on --list (List never enables Options.Strict).
@@ -63,7 +64,7 @@ func TestListIgnoresStrict(t *testing.T) {
 	check(t, run(t, dir, nil, "--list", "--strict", "in.procreate"), 0,
 		"input: in.procreate\nsegments: 2\n\n"+
 			"1 video/segments/segment-1.mp4\n3 video/segments/segment-3.mp4\n",
-		"warning: segment numbers missing: 2 (the video would have gaps)\n")
+		gapWarn("2"))
 }
 
 // --verify does honor --strict: the gap is fatal and no report is emitted.
@@ -73,7 +74,7 @@ func TestVerifyStrictGap(t *testing.T) {
 	delete(entries, "video/segments/segment-2.mp4")
 	writeArchive(t, dir, "in.procreate", entries)
 	check(t, run(t, dir, nil, "--verify", "--strict", "in.procreate"), 5, "",
-		"error: segment numbers missing: 2 (the video would have gaps)\n")
+		actionErr("segment numbers missing: 2 (the video would have gaps)"))
 }
 
 func TestListDirectory(t *testing.T) {
@@ -88,7 +89,7 @@ func TestListDirectory(t *testing.T) {
 		"\n" +
 		"input: input/b.procreate\nsegments: 0\n"
 	check(t, run(t, dir, nil, "--list", "input"), 0, wantOut,
-		"warning: input/b.procreate: no timelapse video inside\n")
+		slogLine(slog.LevelWarn, "no timelapse video inside", "input", "input/b.procreate"))
 }
 
 func TestVerifySingle(t *testing.T) {
@@ -112,7 +113,7 @@ func TestVerifyCorrupt(t *testing.T) {
 		fmt.Sprintf("2 ok    %s  2.00s  video/segments/segment-2.mp4\n", sum) +
 		fmt.Sprintf("3 ok    %s  2.00s  video/segments/segment-3.mp4\n", sum)
 	check(t, run(t, dir, nil, "--verify", "in.procreate"), 5, wantOut,
-		"error: verify failed: 1 of 3 segment(s) are bad\n")
+		actionErr("verify failed: 1 of 3 segment(s) are bad"))
 }
 
 func TestVerifyIncompatible(t *testing.T) {
@@ -131,9 +132,9 @@ func TestVerifyIncompatible(t *testing.T) {
 		fmt.Sprintf("1 ok    %s  2.00s  video/segments/segment-1.mp4\n", sumA) +
 		fmt.Sprintf("2 ok    %s  2.00s  video/segments/segment-2.mp4\n", sumB)
 	check(t, run(t, dir, nil, "--verify", "in.procreate"), 7, wantOut,
-		"error: segments have different stream parameters, so they cannot be joined with stream copy (-c copy):\n"+
+		actionErr("segments have different stream parameters, so they cannot be joined with stream copy (-c copy):\n"+
 			fmt.Sprintf("  video/segments/segment-1.mp4: %s\n", sumA)+
-			fmt.Sprintf("  video/segments/segment-2.mp4: %s\n", sumB))
+			fmt.Sprintf("  video/segments/segment-2.mp4: %s", sumB)))
 }
 
 func TestVerifyDirectoryMixed(t *testing.T) {
@@ -152,5 +153,6 @@ func TestVerifyDirectoryMixed(t *testing.T) {
 		fmt.Sprintf("2 ok    %s  2.00s  video/segments/segment-2.mp4\n", sum) +
 		fmt.Sprintf("3 ok    %s  2.00s  video/segments/segment-3.mp4\n", sum)
 	check(t, run(t, dir, nil, "--verify", "input"), 1, reportA+"\n"+reportC,
-		"error: input/c.procreate: verify failed: 1 of 3 segment(s) are bad\n")
+		slogLine(slog.LevelError, "diagnosis failed", "input", "input/c.procreate",
+			"err", "verify failed: 1 of 3 segment(s) are bad"))
 }

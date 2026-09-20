@@ -20,7 +20,7 @@ options:
   --strict          treat missing segment numbers as an error instead of a warning
   --reencode        accepted for compatibility; stream copy is always used
   --split           also write a video-less .procreepy.procreate beside each MP4
-  --tmpdir DIR      where to extract segments (default: $TMPDIR, else /var/tmp)
+  --tmpdir DIR      where to put temporary files (default: $TMPDIR, else /var/tmp)
   -q, --quiet       only print warnings and errors
   --version         show program's version number and exit
 

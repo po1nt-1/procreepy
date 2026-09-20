@@ -107,12 +107,12 @@ input/                              output/timelaps/
 Sample output (all of it goes to stderr):
 
 ```text
-info: 4 .procreate file(s) in input -> output/timelaps/
-info: [1/4] input/Landscape v2.procreate -> output/timelaps/Landscape v2.mp4
-warning: [2/4] input/No Timelapse.procreate: no timelapse video inside, skipped
-error: [3/4] input/Corrupt file.procreate: input is not a valid ZIP archive ...
-info: [4/4] input/Portrait of a Cat.procreate -> output/timelaps/Portrait of a Cat.mp4
-info: summary: 2 converted, 1 without timelapse, 1 FAILED
+level=INFO msg="batch conversion started" files=4 input=input output=output/timelaps/
+level=ERROR msg="file conversion failed" input="input/Corrupt file.procreate" err="input is not a valid ZIP archive: input/Corrupt file.procreate (not a .procreate file, or truncated/corrupted)"
+level=INFO msg=converted input="input/Landscape v2.procreate" output="output/timelaps/Landscape v2.mp4"
+level=WARN msg="no timelapse video inside, skipped" input="input/No Timelapse.procreate"
+level=INFO msg=converted input="input/Portrait of a Cat.procreate" output="output/timelaps/Portrait of a Cat.mp4"
+level=INFO msg="batch completed" converted=2 existed=0 no_video=1 failed=1
 ```
 
 `--list` and `--verify` also accept a directory and walk all files in it.
@@ -174,7 +174,7 @@ only reads the ZIP directory.
 | `--strict` | treat missing segment numbers as an error (warning by default) |
 | `--reencode` | accepted for compatibility with older scripts; there is no re-encoding, it is always stream copy |
 | `--split` | write `X.procreepy.procreate` next to each `MP4` — the project minus `video/` |
-| `--tmpdir DIR` | where to unpack the segments |
+| `--tmpdir DIR` | where to put temporary files |
 | `-q`, `--quiet` | print only warnings and errors |
 
 ## How it works
@@ -207,19 +207,19 @@ for players and editors alike; the exact same file goes into a pipe —
 - **File** output is atomic: a `.partial` file next to the target, renamed
   only after success. A failed run leaves no stubs and never corrupts an
   existing file.
-- stdout is never polluted with text. All `info:`/`warning:`/`error:` lines
-  go to stderr. The single exception is the `--list`/`--verify` report, where
-  stdout *is* the result. If stdout is a terminal, the utility refuses to
-  dump a binary MP4 into it.
+- stdout is never polluted with text. All log lines (`level=INFO`/`WARN`/
+  `ERROR`, one structured key=value record per line) go to stderr. The single
+  exception is the `--list`/`--verify` report, where stdout *is* the result.
+  If stdout is a terminal, the utility refuses to dump a binary MP4 into it.
 
 ### Temporary files and Fedora
 
 On Fedora, `/tmp` is a tmpfs in RAM. Timelapse segments can be hundreds of
 megabytes, and when reading from stdin the whole `.procreate` is spooled.
 That is why the temp directory is chosen this way: `--tmpdir` → `$TMPDIR` →
-`/var/tmp` (on disk). Free space is checked before unpacking; if there is
-not enough, you get a clear error with a hint instead of a mid-run
-"No space left".
+`/var/tmp` (on disk) → the system default. If the disk fills up while
+spooling, you get a clear error with a hint (use `--tmpdir` on a bigger
+disk-backed directory) instead of a bare "No space left".
 
 ## Exit codes
 

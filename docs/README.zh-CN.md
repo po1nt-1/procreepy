@@ -98,12 +98,12 @@ input/                          output/timelaps/
 示例输出(全部走 stderr):
 
 ```text
-info: 4 .procreate file(s) in input -> output/timelaps/
-info: [1/4] input/Landscape v2.procreate -> output/timelaps/Landscape v2.mp4
-warning: [2/4] input/No Timelapse.procreate: no timelapse video inside, skipped
-error: [3/4] input/Corrupt file.procreate: input is not a valid ZIP archive ...
-info: [4/4] input/Portrait of a Cat.procreate -> output/timelaps/Portrait of a Cat.mp4
-info: summary: 2 converted, 1 without timelapse, 1 FAILED
+level=INFO msg="batch conversion started" files=4 input=input output=output/timelaps/
+level=ERROR msg="file conversion failed" input="input/Corrupt file.procreate" err="input is not a valid ZIP archive: input/Corrupt file.procreate (not a .procreate file, or truncated/corrupted)"
+level=INFO msg=converted input="input/Landscape v2.procreate" output="output/timelaps/Landscape v2.mp4"
+level=WARN msg="no timelapse video inside, skipped" input="input/No Timelapse.procreate"
+level=INFO msg=converted input="input/Portrait of a Cat.procreate" output="output/timelaps/Portrait of a Cat.mp4"
+level=INFO msg="batch completed" converted=2 existed=0 no_video=1 failed=1
 ```
 
 `--list` 和 `--verify` 同样接受目录,并遍历其中所有文件。
@@ -186,8 +186,9 @@ procreepy --verify artwork.procreate
 
 - **文件**输出是原子的:目标旁边先写 `.partial`,成功后才改名。失败的运行
   不留残骸,也绝不会破坏已存在的文件。
-- stdout 永远不会混入文本。所有 `info:`/`warning:`/`error:` 行都走
-  stderr。唯一例外是 `--list`/`--verify` 的报告,那里 stdout *就是* 结果。
+- stdout 永远不会混入文本。所有结构化的 `level=INFO`/`WARN`/`ERROR`
+  日志(每个事件一行 key=value)都走 stderr。唯一例外是
+  `--list`/`--verify` 的报告,那里 stdout *就是* 结果。
   若 stdout 是终端,工具拒绝往里倾倒二进制 MP4。
 
 ### 临时文件与 Fedora

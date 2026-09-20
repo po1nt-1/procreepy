@@ -3,6 +3,7 @@ package video
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -10,14 +11,12 @@ import (
 
 	"procreepy/internal/mp4"
 	"procreepy/internal/procreate"
-	"procreepy/internal/ui"
 )
 
 // List reports the timelapse segments (in playback order). The report goes to
 // stdout via the returned string; warnings go to stderr as they occur.
-func List(ctx context.Context, log *ui.Log, inputArg string, cfg Config) (string, error) {
-	_ = ctx
-	in, err := resolveInput(inputArg, log, cfg)
+func List(ctx context.Context, log *slog.Logger, inputArg string, cfg Config) (string, error) {
+	in, err := resolveInput(inputArg, cfg)
 	if err != nil {
 		return "", err
 	}
@@ -27,7 +26,7 @@ func List(ctx context.Context, log *ui.Log, inputArg string, cfg Config) (string
 		return "", err
 	}
 	defer arch.Close()
-	segs, err := arch.Segments(procreate.Options{AllowEmpty: true, Warn: log.Warn})
+	segs, err := arch.Segments(procreate.Options{AllowEmpty: true, Warn: warnFn(log, ctx)})
 	if err != nil {
 		return "", err
 	}
@@ -49,8 +48,8 @@ func List(ctx context.Context, log *ui.Log, inputArg string, cfg Config) (string
 
 // Verify parses every segment and reports its health. Like List, the report
 // is returned for the caller to print on stdout.
-func Verify(ctx context.Context, log *ui.Log, inputArg string, cfg Config) (string, error) {
-	in, err := resolveInput(inputArg, log, cfg)
+func Verify(ctx context.Context, log *slog.Logger, inputArg string, cfg Config) (string, error) {
+	in, err := resolveInput(inputArg, cfg)
 	if err != nil {
 		return "", err
 	}
@@ -60,7 +59,7 @@ func Verify(ctx context.Context, log *ui.Log, inputArg string, cfg Config) (stri
 		return "", err
 	}
 	defer arch.Close()
-	segs, err := arch.Segments(procreate.Options{Strict: cfg.Strict, Warn: log.Warn})
+	segs, err := arch.Segments(procreate.Options{Strict: cfg.Strict, Warn: warnFn(log, ctx)})
 	if err != nil {
 		return "", err
 	}

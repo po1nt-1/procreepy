@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/signal"
 	"strings"
@@ -12,14 +13,21 @@ import (
 
 	"procreepy/internal/mp4"
 	"procreepy/internal/procreate"
-	"procreepy/internal/ui"
 )
+
+// warnFn adapts the procreate package's printf-style Warn callback to a slog
+// logger, keeping the domain package logger-free.
+func warnFn(log *slog.Logger, ctx context.Context) func(format string, args ...any) {
+	return func(format string, args ...any) {
+		log.WarnContext(ctx, fmt.Sprintf(format, args...))
+	}
+}
 
 // Convert joins the archive's timelapse segments into one moov-first MP4 and
 // writes it to out (stdout or a file). With cfg.Split it additionally writes
 // a video-less copy of the archive (.procreepy.procreate) beside the MP4.
 // It returns the total duration in seconds.
-func Convert(ctx context.Context, log *ui.Log, inputArg string, out Output, cfg Config, chatty bool) (float64, error) {
+func Convert(ctx context.Context, log *slog.Logger, inputArg string, out Output, cfg Config, chatty bool) (float64, error) {
 	if err := out.prepare(inputArg); err != nil {
 		return 0, err
 	}
@@ -27,7 +35,7 @@ func Convert(ctx context.Context, log *ui.Log, inputArg string, out Output, cfg 
 		return 0, &UsageError{Msg: "--split writes a slimmed .procreepy.procreate, so it needs a " +
 			"file or directory OUTPUT, not stdout"}
 	}
-	in, err := resolveInput(inputArg, log, cfg)
+	in, err := resolveInput(inputArg, cfg)
 	if err != nil {
 		return 0, err
 	}
@@ -39,12 +47,12 @@ func Convert(ctx context.Context, log *ui.Log, inputArg string, out Output, cfg 
 	}
 	defer arch.Close()
 
-	segs, err := arch.Segments(procreate.Options{Strict: cfg.Strict, Warn: log.Warn})
+	segs, err := arch.Segments(procreate.Options{Strict: cfg.Strict, Warn: warnFn(log, ctx)})
 	if err != nil {
 		return 0, err
 	}
 	if chatty {
-		log.Info("%s: %d segment(s)", in.label, len(segs))
+		log.InfoContext(ctx, "segments found", "input", in.label, "count", len(segs))
 	}
 
 	movies := make([]*mp4.Movie, len(segs))
@@ -78,7 +86,7 @@ func Convert(ctx context.Context, log *ui.Log, inputArg string, out Output, cfg 
 	}
 
 	if chatty {
-		log.Info("joining segments (stream copy)")
+		log.InfoContext(ctx, "joining segments (stream copy)")
 	}
 
 	destTxt, err := writeOut(ctx, arch, segs, mg, out)
@@ -91,11 +99,11 @@ func Convert(ctx context.Context, log *ui.Log, inputArg string, out Output, cfg 
 		if err != nil {
 			return 0, &WriteError{Msg: "cannot write slimmed archive " + slim + ": " + strerror(err)}
 		}
-		log.Info("slimmed archive -> %s (removed %d video file(s), ~%s of video)",
-			slim, removed, humanBytes(removedBytes))
+		log.InfoContext(ctx, "slimmed archive written", "path", slim, "removed_files", removed,
+			"video_size", humanBytes(removedBytes))
 	}
 	if chatty {
-		log.Info("done: %s (~%.1f s of video)", destTxt, mg.DurationSeconds())
+		log.InfoContext(ctx, "conversion completed", "output", destTxt, "duration_s", mg.DurationSeconds())
 	}
 	return mg.DurationSeconds(), nil
 }

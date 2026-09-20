@@ -112,12 +112,12 @@ input/                               output/timelaps/
 Sortie d'exemple (tout va vers stderr) :
 
 ```text
-info: 4 .procreate file(s) in input -> output/timelaps/
-info: [1/4] input/Landscape v2.procreate -> output/timelaps/Landscape v2.mp4
-warning: [2/4] input/No Timelapse.procreate: no timelapse video inside, skipped
-error: [3/4] input/Corrupt file.procreate: input is not a valid ZIP archive ...
-info: [4/4] input/Portrait of a Cat.procreate -> output/timelaps/Portrait of a Cat.mp4
-info: summary: 2 converted, 1 without timelapse, 1 FAILED
+level=INFO msg="batch conversion started" files=4 input=input output=output/timelaps/
+level=ERROR msg="file conversion failed" input="input/Corrupt file.procreate" err="input is not a valid ZIP archive: input/Corrupt file.procreate (not a .procreate file, or truncated/corrupted)"
+level=INFO msg=converted input="input/Landscape v2.procreate" output="output/timelaps/Landscape v2.mp4"
+level=WARN msg="no timelapse video inside, skipped" input="input/No Timelapse.procreate"
+level=INFO msg=converted input="input/Portrait of a Cat.procreate" output="output/timelaps/Portrait of a Cat.mp4"
+level=INFO msg="batch completed" converted=2 existed=0 no_video=1 failed=1
 ```
 
 `--list` et `--verify` acceptent aussi un répertoire et parcourent tous les
@@ -217,8 +217,9 @@ le même résultat qu'un `procreepy artwork.procreate artwork.mp4` explicite.
 - La sortie vers un **fichier** est atomique : un fichier `.partial` à côté
   de la cible, renommé seulement après succès. Un échec ne laisse pas de
   restes et ne corrompt jamais un fichier existant.
-- stdout n'est jamais pollué par du texte. Toutes les lignes
-  `info:`/`warning:`/`error:` vont vers stderr. L'unique exception est le
+- stdout n'est jamais pollué par du texte. Tous les enregistrements
+  `level=INFO`/`WARN`/`ERROR` (une ligne structurée key=value par enregistrement)
+  vont vers stderr. L'unique exception est le
   rapport `--list`/`--verify`, où stdout *est* le résultat. Si stdout est un
   terminal, l'utilitaire refuse d'y déverser un MP4 binaire.
 

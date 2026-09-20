@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,9 +13,14 @@ import (
 	"procreepy/internal/mp4"
 	"procreepy/internal/procreate"
 	"procreepy/internal/testkit"
-	"procreepy/internal/ui"
 	"procreepy/internal/video"
 )
+
+// bufLogger builds a real TextHandler logger writing to buf, so assertions
+// check the exact rendered lines.
+func bufLogger(buf *bytes.Buffer) *slog.Logger {
+	return slog.New(slog.NewTextHandler(buf, nil))
+}
 
 func goodArchBytes(t *testing.T) []byte {
 	t.Helper()
@@ -140,7 +146,7 @@ func TestConvertDirectory(t *testing.T) {
 	})
 	outDir := filepath.Join(t.TempDir(), "out")
 	var logBuf bytes.Buffer
-	log := &ui.Log{Out: &logBuf}
+	log := bufLogger(&logBuf)
 
 	code, err := ConvertDirectory(context.Background(), log, root, outDir, video.Config{}, false, false)
 	if err != nil {
@@ -151,10 +157,11 @@ func TestConvertDirectory(t *testing.T) {
 	}
 	logged := logBuf.String()
 	for _, want := range []string{
-		"3 .procreate file(s) in " + root + " -> " + outDir + "/",
-		"no timelapse video inside, skipped",
-		"1 converted, 1 without timelapse, 1 FAILED",
-		"[1/3] input is not a valid ZIP archive",
+		`level=INFO msg="batch conversion started" files=3`,
+		`level=WARN msg="no timelapse video inside, skipped"`,
+		`level=ERROR msg="file conversion failed"`,
+		"input is not a valid ZIP archive",
+		`level=INFO msg="batch completed" converted=1 existed=0 no_video=1 failed=1`,
 	} {
 		if !strings.Contains(logged, want) {
 			t.Errorf("log missing %q:\n%s", want, logged)
@@ -162,9 +169,6 @@ func TestConvertDirectory(t *testing.T) {
 	}
 	if strings.Contains(logged, "already exists") {
 		t.Errorf("first run must not skip anything:\n%s", logged)
-	}
-	if !strings.Contains(logged, "[1/3]") || !strings.Contains(logged, "[3/3]") {
-		t.Errorf("log missing tags:\n%s", logged)
 	}
 	okOut := filepath.Join(outDir, "ok.mp4")
 	if _, err := os.Stat(okOut); err != nil {
@@ -207,7 +211,7 @@ func TestConvertDirectory(t *testing.T) {
 	if !strings.Contains(logBuf.String(), "already exists (use --force to overwrite)") {
 		t.Errorf("rerun log missing skip message:\n%s", logBuf.String())
 	}
-	if !strings.Contains(logBuf.String(), "1 already existed") {
+	if !strings.Contains(logBuf.String(), `existed=1`) {
 		t.Errorf("rerun log missing summary:\n%s", logBuf.String())
 	}
 
@@ -217,7 +221,7 @@ func TestConvertDirectory(t *testing.T) {
 	if err != nil || code != 1 {
 		t.Fatalf("force run: code=%d err=%v\n%s", code, err, logBuf.String())
 	}
-	if !strings.Contains(logBuf.String(), "[3/3]") {
+	if !strings.Contains(logBuf.String(), `converted=1`) {
 		t.Errorf("force run log:\n%s", logBuf.String())
 	}
 }
@@ -226,7 +230,7 @@ func TestConvertDirectoryErrors(t *testing.T) {
 	root := t.TempDir()
 	writeTree(t, root, map[string][]byte{"ok.procreate": goodArchBytes(t)})
 
-	if _, err := ConvertDirectory(context.Background(), &ui.Log{Quiet: true}, root, "-",
+	if _, err := ConvertDirectory(context.Background(), slog.New(slog.DiscardHandler), root, "-",
 		video.Config{}, false, false); err == nil {
 		t.Fatal("stdout output dir: want error")
 	} else {
@@ -243,7 +247,7 @@ func TestConvertDirectoryErrors(t *testing.T) {
 	if err := os.WriteFile(fileAsDir, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ConvertDirectory(context.Background(), &ui.Log{Quiet: true}, root, fileAsDir,
+	if _, err := ConvertDirectory(context.Background(), slog.New(slog.DiscardHandler), root, fileAsDir,
 		video.Config{}, false, false); err == nil {
 		t.Fatal("output path is a file: want error")
 	} else if !strings.Contains(err.Error(), "output path exists and is not a directory") {
@@ -251,7 +255,7 @@ func TestConvertDirectoryErrors(t *testing.T) {
 	}
 
 	empty := t.TempDir()
-	if _, err := ConvertDirectory(context.Background(), &ui.Log{Quiet: true}, empty, "",
+	if _, err := ConvertDirectory(context.Background(), slog.New(slog.DiscardHandler), empty, "",
 		video.Config{}, false, false); err == nil {
 		t.Fatal("empty dir: want error")
 	} else {
@@ -292,7 +296,7 @@ func TestDiagnoseDirectory(t *testing.T) {
 		"empty.procreate": emptyArchBytes(t),
 	})
 	var logBuf bytes.Buffer
-	log := &ui.Log{Out: &logBuf}
+	log := bufLogger(&logBuf)
 	collect := captureStdout(t)
 
 	code, err := DiagnoseDirectory(log, root, false,
@@ -316,7 +320,8 @@ func TestDiagnoseDirectory(t *testing.T) {
 		strings.Count(out, "input:") != 2 {
 		t.Errorf("stdout:\n%s", out)
 	}
-	if !strings.Contains(logBuf.String(), "warning: "+filepath.Join(root, "empty.procreate")+": no timelapse video inside") {
+	if !strings.Contains(logBuf.String(), `level=WARN msg="no timelapse video inside"`) ||
+		!strings.Contains(logBuf.String(), `input=`+filepath.Join(root, "empty.procreate")) {
 		t.Errorf("log missing no-timelapse warning:\n%s", logBuf.String())
 	}
 }
@@ -326,7 +331,7 @@ func TestConvertDirectorySplit(t *testing.T) {
 	writeTree(t, root, map[string][]byte{"one.procreate": goodArchBytes(t)})
 	outDir := filepath.Join(t.TempDir(), "out")
 	var logBuf bytes.Buffer
-	log := &ui.Log{Out: &logBuf}
+	log := bufLogger(&logBuf)
 
 	code, err := ConvertDirectory(context.Background(), log, root, outDir,
 		video.Config{Split: true}, false, false)
@@ -348,7 +353,8 @@ func TestConvertDirectorySplit(t *testing.T) {
 	if _, err := a.Segments(procreate.Options{}); err == nil {
 		t.Error("slim still has segments")
 	}
-	if !strings.Contains(logBuf.String(), "slimmed archive -> "+slim) {
+	if !strings.Contains(logBuf.String(), `msg="slimmed archive written"`) ||
+		!strings.Contains(logBuf.String(), `path=`+slim) {
 		t.Errorf("log missing slim line:\n%s", logBuf.String())
 	}
 }
@@ -357,7 +363,7 @@ func TestDiagnoseDirectoryFails(t *testing.T) {
 	root := t.TempDir()
 	writeTree(t, root, map[string][]byte{"bad.procreate": []byte("junk")})
 	var logBuf bytes.Buffer
-	log := &ui.Log{Out: &logBuf}
+	log := bufLogger(&logBuf)
 	collect := captureStdout(t)
 
 	code, err := DiagnoseDirectory(log, root, false,
@@ -371,7 +377,8 @@ func TestDiagnoseDirectoryFails(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("code = %d, want 1", code)
 	}
-	if !strings.Contains(logBuf.String(), "error: "+filepath.Join(root, "bad.procreate")) {
+	if !strings.Contains(logBuf.String(), `level=ERROR msg="diagnosis failed"`) ||
+		!strings.Contains(logBuf.String(), `input=`+filepath.Join(root, "bad.procreate")) {
 		t.Errorf("log:\n%s", logBuf.String())
 	}
 }

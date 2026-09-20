@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/signal"
 	"strings"
@@ -14,7 +15,6 @@ import (
 
 	"procreepy/internal/batch"
 	"procreepy/internal/procreate"
-	"procreepy/internal/ui"
 	"procreepy/internal/video"
 )
 
@@ -64,7 +64,7 @@ options:
   --strict          treat missing segment numbers as an error instead of a warning
   --reencode        accepted for compatibility; stream copy is always used
   --split           also write a video-less .procreepy.procreate beside each MP4
-  --tmpdir DIR      where to extract segments (default: $TMPDIR, else /var/tmp)
+  --tmpdir DIR      where to put temporary files (default: $TMPDIR, else /var/tmp)
   -q, --quiet       only print warnings and errors
   --version         show program's version number and exit
 
@@ -113,7 +113,6 @@ func Run(argv []string) int {
 
 // run is the writer-injectable core of Run (tests capture both streams).
 func run(argv []string, stdout, stderr io.Writer) int {
-	log := &ui.Log{Out: stderr}
 	args, act, perr := parseArgs(argv)
 	switch act {
 	case actVersion:
@@ -128,7 +127,7 @@ func run(argv []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "%s: error: %s\n", prog, perr)
 		return exitUsage
 	}
-	log.Quiet = args.quiet
+	log := newLogger(stderr, args.quiet)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -144,7 +143,8 @@ func run(argv []string, stdout, stderr io.Writer) int {
 				if os.Getenv("PROCREATE_VIDEO_DEBUG") != "" {
 					panic(r)
 				}
-				log.Error("unexpected %T: %v (set PROCREATE_VIDEO_DEBUG=1 for a traceback)", r, r)
+				log.Error("unexpected panic (set PROCREATE_VIDEO_DEBUG=1 for a traceback)",
+					"type", fmt.Sprintf("%T", r), "value", fmt.Sprintf("%v", r))
 				panicked = true
 			}
 		}()
@@ -159,13 +159,32 @@ func run(argv []string, stdout, stderr io.Writer) int {
 			log.Error("interrupted")
 			return exitInterrupt
 		}
-		log.Error("%s", err.Error())
+		log.Error(err.Error())
 		return codeOf(err)
 	}
 	return code
 }
 
-func dispatch(ctx context.Context, log *ui.Log, a *parsedArgs) (int, error) {
+// newLogger builds the one application logger: TextHandler on the injected
+// stderr, INFO by default and WARN with -q. The time attribute is dropped so
+// output stays deterministic (the terminal or CI system stamps it).
+func newLogger(stderr io.Writer, quiet bool) *slog.Logger {
+	level := slog.LevelInfo
+	if quiet {
+		level = slog.LevelWarn
+	}
+	return slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{
+		Level: level,
+		ReplaceAttr: func(_ []string, v slog.Attr) slog.Attr {
+			if v.Key == "time" {
+				return slog.Attr{}
+			}
+			return v
+		},
+	}))
+}
+
+func dispatch(ctx context.Context, log *slog.Logger, a *parsedArgs) (int, error) {
 	src := a.input
 	isDir := src != "-" && isDirectory(src)
 	cfg := video.Config{Strict: a.strict, Reencode: a.reencode, TmpDir: a.tmpdir, Split: a.split}

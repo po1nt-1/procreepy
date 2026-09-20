@@ -110,12 +110,12 @@ input/                             output/timelaps/
 Contoh keluaran (semuanya ke stderr):
 
 ```text
-info: 4 .procreate file(s) in input -> output/timelaps/
-info: [1/4] input/Landscape v2.procreate -> output/timelaps/Landscape v2.mp4
-warning: [2/4] input/No Timelapse.procreate: no timelapse video inside, skipped
-error: [3/4] input/Corrupt file.procreate: input is not a valid ZIP archive ...
-info: [4/4] input/Portrait of a Cat.procreate -> output/timelaps/Portrait of a Cat.mp4
-info: summary: 2 converted, 1 without timelapse, 1 FAILED
+level=INFO msg="batch conversion started" files=4 input=input output=output/timelaps/
+level=ERROR msg="file conversion failed" input="input/Corrupt file.procreate" err="input is not a valid ZIP archive: input/Corrupt file.procreate (not a .procreate file, or truncated/corrupted)"
+level=INFO msg=converted input="input/Landscape v2.procreate" output="output/timelaps/Landscape v2.mp4"
+level=WARN msg="no timelapse video inside, skipped" input="input/No Timelapse.procreate"
+level=INFO msg=converted input="input/Portrait of a Cat.procreate" output="output/timelaps/Portrait of a Cat.mp4"
+level=INFO msg="batch completed" converted=2 existed=0 no_video=1 failed=1
 ```
 
 `--list` dan `--verify` juga menerima direktori dan menjelajahi semua
@@ -212,7 +212,8 @@ player maupun editor; berkas persis yang sama ikut masuk ke pipa —
 - Keluaran ke **berkas** bersifat atomik: berkas `.partial` di samping
   tujuan, diganti namanya hanya setelah berhasil. Jalanan yang gagal tidak
   meninggalkan sisa dan tidak pernah merusak berkas yang sudah ada.
-- stdout tidak pernah ternoda teks. Semua baris `info:`/`warning:`/`error:`
+- stdout tidak pernah ternoda teks. Semua baris terstruktur
+  `level=INFO`/`WARN`/`ERROR` (satu record key=value per baris)
   pergi ke stderr. Satu-satunya pengecualian adalah laporan
   `--list`/`--verify`, di mana stdout *adalah* hasilnya. Jika stdout adalah
   terminal, utilitas menolak membongkar MP4 biner ke sana.

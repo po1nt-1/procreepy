@@ -111,12 +111,12 @@ input/                              output/timelaps/
 Salida de ejemplo (todo va a stderr):
 
 ```text
-info: 4 .procreate file(s) in input -> output/timelaps/
-info: [1/4] input/Landscape v2.procreate -> output/timelaps/Landscape v2.mp4
-warning: [2/4] input/No Timelapse.procreate: no timelapse video inside, skipped
-error: [3/4] input/Corrupt file.procreate: input is not a valid ZIP archive ...
-info: [4/4] input/Portrait of a Cat.procreate -> output/timelaps/Portrait of a Cat.mp4
-info: summary: 2 converted, 1 without timelapse, 1 FAILED
+level=INFO msg="batch conversion started" files=4 input=input output=output/timelaps/
+level=ERROR msg="file conversion failed" input="input/Corrupt file.procreate" err="input is not a valid ZIP archive: input/Corrupt file.procreate (not a .procreate file, or truncated/corrupted)"
+level=INFO msg=converted input="input/Landscape v2.procreate" output="output/timelaps/Landscape v2.mp4"
+level=WARN msg="no timelapse video inside, skipped" input="input/No Timelapse.procreate"
+level=INFO msg=converted input="input/Portrait of a Cat.procreate" output="output/timelaps/Portrait of a Cat.mp4"
+level=INFO msg="batch completed" converted=2 existed=0 no_video=1 failed=1
 ```
 
 `--list` y `--verify` también aceptan un directorio y recorren todos los
@@ -215,8 +215,9 @@ resultado que un `procreepy artwork.procreate artwork.mp4` explícito.
 - La salida a **archivo** es atómica: un `.partial` junto al destino y
   renombrado solo tras el éxito. Una ejecución fallida no deja restos ni
   corrompe un archivo existente.
-- stdout nunca se ensucia con texto. Todas las líneas `info:`/`warning:`/
-  `error:` van a stderr. La única excepción es el informe
+- stdout nunca se ensucia con texto. Todos los registros
+  `level=INFO`/`WARN`/`ERROR` (un registro estructurado key=value por línea)
+  van a stderr. La única excepción es el informe
   `--list`/`--verify`, donde stdout *es* el resultado. Si stdout es un
   terminal, la utilidad se niega a volcar un MP4 binario en él.
 

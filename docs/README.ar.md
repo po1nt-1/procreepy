@@ -104,12 +104,12 @@ input/                              output/timelaps/
 مثال على الإخراج (كله إلى stderr):
 
 ```text
-info: 4 .procreate file(s) in input -> output/timelaps/
-info: [1/4] input/Landscape v2.procreate -> output/timelaps/Landscape v2.mp4
-warning: [2/4] input/No Timelapse.procreate: no timelapse video inside, skipped
-error: [3/4] input/Corrupt file.procreate: input is not a valid ZIP archive ...
-info: [4/4] input/Portrait of a Cat.procreate -> output/timelaps/Portrait of a Cat.mp4
-info: summary: 2 converted, 1 without timelapse, 1 FAILED
+level=INFO msg="batch conversion started" files=4 input=input output=output/timelaps/
+level=ERROR msg="file conversion failed" input="input/Corrupt file.procreate" err="input is not a valid ZIP archive: input/Corrupt file.procreate (not a .procreate file, or truncated/corrupted)"
+level=INFO msg=converted input="input/Landscape v2.procreate" output="output/timelaps/Landscape v2.mp4"
+level=WARN msg="no timelapse video inside, skipped" input="input/No Timelapse.procreate"
+level=INFO msg=converted input="input/Portrait of a Cat.procreate" output="output/timelaps/Portrait of a Cat.mp4"
+level=INFO msg="batch completed" converted=2 existed=0 no_video=1 failed=1
 ```
 
 `--list` و`--verify` يقبلان مجلداً أيضاً ويتصفحان كل ملفاتِه.
@@ -198,8 +198,9 @@ procreepy --verify artwork.procreate
 
 - الخروج إلى **ملف** ذرّي: ملف `.partial` بجانب الهدف، يُعاد تسميته فقط
   بعد النجاح. التشغيل الفاشل لا يترك بقايا ولا يفسد ملفاً موجوداً أبداً.
-- لا يتلوث stdout بالنص أبداً. كل أسطر `info:`/`warning:`/`error:` تذهب
-  إلى stderr. الاستثناء الوحيد تقرير `--list`/`--verify` حيث stdout *هو*
+- لا يتلوث stdout بالنص أبداً. كل السجلات المهيكلة `level=INFO`/`WARN`/
+  `ERROR` (سجل key=value واحد في كل سطر) تذهب إلى stderr. الاستثناء
+  الوحيد تقرير `--list`/`--verify` حيث stdout *هو*
   النتيجة. إذا كان stdout طرفية ترفض الأداة سكب MP4 ثنائي فيه.
 
 ### الملفات المؤقتة وFedora

@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
@@ -16,7 +17,7 @@ func TestInputErrors(t *testing.T) {
 	t.Run("missing", func(t *testing.T) {
 		dir := t.TempDir()
 		check(t, run(t, dir, nil, "nope.procreate", "out.mp4"), 3, "",
-			"error: input does not exist: nope.procreate\n")
+			actionErr("input does not exist: nope.procreate"))
 	})
 	t.Run("empty_file", func(t *testing.T) {
 		dir := t.TempDir()
@@ -24,7 +25,7 @@ func TestInputErrors(t *testing.T) {
 			t.Fatal(err)
 		}
 		check(t, run(t, dir, nil, "in.procreate", "out.mp4"), 3, "",
-			"error: input is empty: in.procreate\n")
+			actionErr("input is empty: in.procreate"))
 	})
 	t.Run("not_a_zip", func(t *testing.T) {
 		dir := t.TempDir()
@@ -32,7 +33,7 @@ func TestInputErrors(t *testing.T) {
 			t.Fatal(err)
 		}
 		check(t, run(t, dir, nil, "in.procreate", "out.mp4"), 3, "",
-			"error: input is not a valid ZIP archive: in.procreate (not a .procreate file, or truncated/corrupted)\n")
+			actionErr("input is not a valid ZIP archive: in.procreate (not a .procreate file, or truncated/corrupted)"))
 	})
 	t.Run("truncated_zip", func(t *testing.T) {
 		dir := t.TempDir()
@@ -41,7 +42,7 @@ func TestInputErrors(t *testing.T) {
 			t.Fatal(err)
 		}
 		check(t, run(t, dir, nil, "in.procreate", "out.mp4"), 3, "",
-			"error: input is not a valid ZIP archive: in.procreate (not a .procreate file, or truncated/corrupted)\n")
+			actionErr("input is not a valid ZIP archive: in.procreate (not a .procreate file, or truncated/corrupted)"))
 	})
 }
 
@@ -54,7 +55,7 @@ func TestNoSegments(t *testing.T) {
 		dir := t.TempDir()
 		writeArchive(t, dir, "in.procreate", entries)
 		check(t, run(t, dir, nil, "in.procreate", "out.mp4"), 4, "",
-			"error: no video/segments in this archive (time-lapse recording was probably turned off for this artwork)\n")
+			actionErr("no video/segments in this archive (time-lapse recording was probably turned off for this artwork)"))
 		if _, err := os.Stat(filepath.Join(dir, "out.mp4")); !os.IsNotExist(err) {
 			t.Error("out.mp4 should not exist")
 		}
@@ -64,13 +65,13 @@ func TestNoSegments(t *testing.T) {
 		writeArchive(t, dir, "in.procreate", entries)
 		check(t, run(t, dir, nil, "--list", "in.procreate"), 4,
 			"input: in.procreate\nsegments: 0\n",
-			"error: no video/segments in this archive\n")
+			actionErr("no video/segments in this archive"))
 	})
 	t.Run("verify", func(t *testing.T) {
 		dir := t.TempDir()
 		writeArchive(t, dir, "in.procreate", entries)
 		check(t, run(t, dir, nil, "--verify", "in.procreate"), 4, "",
-			"error: no video/segments in this archive (time-lapse recording was probably turned off for this artwork)\n")
+			actionErr("no video/segments in this archive (time-lapse recording was probably turned off for this artwork)"))
 	})
 	t.Run("unnumbered_only", func(t *testing.T) {
 		e := map[string][]byte{
@@ -81,8 +82,8 @@ func TestNoSegments(t *testing.T) {
 		dir := t.TempDir()
 		writeArchive(t, dir, "in.procreate", e)
 		check(t, run(t, dir, nil, "in.procreate", "out.mp4"), 5, "",
-			"warning: ignoring video/segments/whatever.mp4: name does not match segment-<number>.mp4\n"+
-				"error: video/segments has 1 .mp4 file(s), but none is named segment-<number>.mp4, so the order cannot be determined\n")
+			strayWarn("video/segments/whatever.mp4")+
+				actionErr("video/segments has 1 .mp4 file(s), but none is named segment-<number>.mp4, so the order cannot be determined"))
 	})
 }
 
@@ -119,15 +120,15 @@ func TestAmbiguousNumbering(t *testing.T) {
 		t.Fatal(err)
 	}
 	check(t, run(t, dir, nil, "in.procreate", "out.mp4"), 5, "",
-		"error: bad segment: ambiguous segment numbering: video/segments/SEGMENT-1.MP4, video/segments/segment-1.mp4 all map to segment 1\n")
+		actionErr("bad segment: ambiguous segment numbering: video/segments/SEGMENT-1.MP4, video/segments/segment-1.mp4 all map to segment 1"))
 }
 
 func TestCorruptedSegment(t *testing.T) {
 	dir := t.TempDir()
 	writeArchiveCorrupted(t, dir, "in.procreate", stdThree(), "video/segments/segment-2.mp4")
 	check(t, run(t, dir, nil, "in.procreate", "out.mp4"), 5, "",
-		"info: in.procreate: 3 segment(s)\n"+
-			"error: segment video/segments/segment-2.mp4 is corrupted inside the archive: zip: checksum error\n")
+		slogLine(slog.LevelInfo, "segments found", "input", "in.procreate", "count", 3)+
+			actionErr("segment video/segments/segment-2.mp4 is corrupted inside the archive: zip: checksum error"))
 	if _, err := os.Stat(filepath.Join(dir, "out.mp4")); !os.IsNotExist(err) {
 		t.Error("out.mp4 should not exist")
 	}
@@ -149,8 +150,8 @@ func TestTwoMdat(t *testing.T) {
 	entries["video/segments/segment-1.mp4"] = appendMdat(segN(1))
 	writeArchive(t, dir, "in.procreate", entries)
 	check(t, run(t, dir, nil, "in.procreate", "out.mp4"), 5, "",
-		"info: in.procreate: 3 segment(s)\n"+
-			"error: bad segment: segment video/segments/segment-1.mp4 has 2 mdat boxes (want 1)\n")
+		slogLine(slog.LevelInfo, "segments found", "input", "in.procreate", "count", 3)+
+			actionErr("bad segment: segment video/segments/segment-1.mp4 has 2 mdat boxes (want 1)"))
 }
 
 // incompatibleSegA/B differ in height, so SameStreams fails.
@@ -186,10 +187,10 @@ func TestIncompatible(t *testing.T) {
 		t.Fatalf("test fixture bug: summaries should differ (%q)", sumA)
 	}
 	check(t, run(t, dir, nil, "in.procreate", "out.mp4"), 7, "",
-		"info: in.procreate: 2 segment(s)\n"+
-			"error: segments have different stream parameters, so they cannot be joined with stream copy (-c copy):\n"+
-			fmt.Sprintf("  video/segments/segment-1.mp4: %s\n", sumA)+
-			fmt.Sprintf("  video/segments/segment-2.mp4: %s\n", sumB))
+		slogLine(slog.LevelInfo, "segments found", "input", "in.procreate", "count", 2)+
+			actionErr("segments have different stream parameters, so they cannot be joined with stream copy (-c copy):\n"+
+				fmt.Sprintf("  video/segments/segment-1.mp4: %s\n", sumA)+
+				fmt.Sprintf("  video/segments/segment-2.mp4: %s", sumB)))
 	if _, err := os.Stat(filepath.Join(dir, "out.mp4")); !os.IsNotExist(err) {
 		t.Error("out.mp4 should not exist")
 	}
@@ -200,9 +201,7 @@ func TestIncompatible(t *testing.T) {
 func TestTmpdirFallback(t *testing.T) {
 	dir := t.TempDir()
 	writeArchive(t, dir, "in.procreate", stdThree())
-	wantErr := "info: in.procreate: 3 segment(s)\n" +
-		"info: joining segments (stream copy)\n" +
-		"info: done: out.mp4 (~6.0 s of video)\n"
+	wantErr := chattyBlock("in.procreate", 3, "out.mp4", 6.0)
 	check(t, run(t, dir, nil, "--tmpdir", "does-not-exist", "in.procreate", "out.mp4"), 0, "", wantErr)
 	eqBytes(t, "out.mp4", readAll(t, filepath.Join(dir, "out.mp4")),
 		expectedMP4(t, segN(1), segN(2), segN(3)))

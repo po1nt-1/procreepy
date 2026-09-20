@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -14,7 +15,6 @@ import (
 	"syscall"
 
 	"procreepy/internal/procreate"
-	"procreepy/internal/ui"
 	"procreepy/internal/video"
 )
 
@@ -135,7 +135,7 @@ func PlanOutputs(files []string, root, outDir string, recursive bool) []Pair {
 // into MP4s under outDir (DefaultOutputDir when outputArg is empty). It
 // returns the exit code (0, or 1 when any file failed) and an error for
 // run-aborting problems (bad command line, unwritable output dir).
-func ConvertDirectory(ctx context.Context, log *ui.Log, inDir, outputArg string,
+func ConvertDirectory(ctx context.Context, log *slog.Logger, inDir, outputArg string,
 	cfg video.Config, force, recursive bool) (int, error) {
 
 	if outputArg == "-" {
@@ -165,22 +165,23 @@ func ConvertDirectory(ctx context.Context, log *ui.Log, inDir, outputArg string,
 	}
 
 	plan := PlanOutputs(files, inDir, outDir, recursive)
-	log.Info("%d .procreate file(s) in %s -> %s/", len(plan), inDir, outDir)
+	log.InfoContext(ctx, "batch conversion started", "files", len(plan), "input", inDir, "output", outDir+"/")
 
 	converted, existed, noVideo := 0, 0, 0
 	failed := 0
-	for i, p := range plan {
+	for _, p := range plan {
 		if cerr := ctx.Err(); cerr != nil {
 			return 0, cerr
 		}
-		tag := fmt.Sprintf("[%d/%d] %s", i+1, len(plan), p.Src)
 		if _, err := os.Stat(p.Dst); err == nil && !force {
-			log.Info("%s: skipped, %s already exists (use --force to overwrite)", tag, p.Dst)
+			log.InfoContext(ctx, "skipped, output already exists (use --force to overwrite)",
+				"input", p.Src, "output", p.Dst)
 			existed++
 			continue
 		}
 		if err := os.MkdirAll(filepath.Dir(p.Dst), 0o755); err != nil {
-			log.Error("%s: %s", tag, strerror(err))
+			log.ErrorContext(ctx, "cannot create output directory",
+				"input", p.Src, "output_dir", filepath.Dir(p.Dst), "err", strerror(err))
 			failed++
 			continue
 		}
@@ -191,34 +192,20 @@ func ConvertDirectory(ctx context.Context, log *ui.Log, inDir, outputArg string,
 				return 0, cerr
 			}
 			if errors.Is(err, procreate.ErrNoSegments) {
-				log.Warn("%s: no timelapse video inside, skipped", tag)
+				log.WarnContext(ctx, "no timelapse video inside, skipped", "input", p.Src)
 				noVideo++
 			} else {
-				// Some messages already name the file; don't print it twice.
-				if strings.Contains(err.Error(), p.Src) {
-					log.Error("[%d/%d] %s", i+1, len(plan), err.Error())
-				} else {
-					log.Error("%s: %s", tag, err.Error())
-				}
+				log.ErrorContext(ctx, "file conversion failed", "input", p.Src, "err", err)
 				failed++
 			}
 			continue
 		}
-		log.Info("%s -> %s", tag, p.Dst)
+		log.InfoContext(ctx, "converted", "input", p.Src, "output", p.Dst)
 		converted++
 	}
 
-	parts := []string{fmt.Sprintf("%d converted", converted)}
-	if existed > 0 {
-		parts = append(parts, fmt.Sprintf("%d already existed", existed))
-	}
-	if noVideo > 0 {
-		parts = append(parts, fmt.Sprintf("%d without timelapse", noVideo))
-	}
-	if failed > 0 {
-		parts = append(parts, fmt.Sprintf("%d FAILED", failed))
-	}
-	log.Info("summary: %s", strings.Join(parts, ", "))
+	log.InfoContext(ctx, "batch completed", "converted", converted, "existed", existed,
+		"no_video", noVideo, "failed", failed)
 	if failed > 0 {
 		return 1, nil
 	}
@@ -229,7 +216,7 @@ func ConvertDirectory(ctx context.Context, log *ui.Log, inDir, outputArg string,
 // .procreate file in inDir. Reports go to stdout; warnings and errors go to
 // the log. It returns the exit code and an error for run-aborting problems
 // (such as a broken pipe while printing a report).
-func DiagnoseDirectory(log *ui.Log, inDir string, recursive bool,
+func DiagnoseDirectory(log *slog.Logger, inDir string, recursive bool,
 	action func(input string) (string, error)) (int, error) {
 
 	files, err := Discover(inDir, recursive)
@@ -256,9 +243,9 @@ func DiagnoseDirectory(log *ui.Log, inDir string, recursive bool,
 		}
 		if aerr != nil {
 			if errors.Is(aerr, procreate.ErrNoSegments) {
-				log.Warn("%s: no timelapse video inside", src)
+				log.Warn("no timelapse video inside", "input", src)
 			} else {
-				log.Error("%s: %s", src, aerr.Error())
+				log.Error("diagnosis failed", "input", src, "err", aerr)
 				failed++
 			}
 		}

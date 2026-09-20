@@ -105,12 +105,12 @@ input/                                output/timelaps/
 Пример вывода (всё это идёт в stderr):
 
 ```text
-info: 4 .procreate file(s) in input -> output/timelaps/
-info: [1/4] input/Landscape v2.procreate -> output/timelaps/Landscape v2.mp4
-warning: [2/4] input/No Timelapse.procreate: no timelapse video inside, skipped
-error: [3/4] input/Corrupt file.procreate: input is not a valid ZIP archive ...
-info: [4/4] input/Portrait of a Cat.procreate -> output/timelaps/Portrait of a Cat.mp4
-info: summary: 2 converted, 1 without timelapse, 1 FAILED
+level=INFO msg="batch conversion started" files=4 input=input output=output/timelaps/
+level=ERROR msg="file conversion failed" input="input/Corrupt file.procreate" err="input is not a valid ZIP archive: input/Corrupt file.procreate (not a .procreate file, or truncated/corrupted)"
+level=INFO msg=converted input="input/Landscape v2.procreate" output="output/timelaps/Landscape v2.mp4"
+level=WARN msg="no timelapse video inside, skipped" input="input/No Timelapse.procreate"
+level=INFO msg=converted input="input/Portrait of a Cat.procreate" output="output/timelaps/Portrait of a Cat.mp4"
+level=INFO msg="batch completed" converted=2 existed=0 no_video=1 failed=1
 ```
 
 `--list` и `--verify` тоже принимают папку и проходят по всем файлам.
@@ -201,7 +201,8 @@ procreepy --verify artwork.procreate
 - В **файл** запись атомарная: `.partial` рядом и переименование только после
   успеха. Неудачный запуск не оставляет обрубков и не портит уже существующий
   файл.
-- stdout никогда не пачкается текстом. Все `info:`/`warning:`/`error:` идут в
+- stdout никогда не пачкается текстом. Все структурированные записи
+  `level=INFO`/`WARN`/`ERROR` (одна key=value-строка на событие) идут в
   stderr. Единственное исключение — отчёт `--list`/`--verify`, где stdout
   и есть результат. Если stdout — терминал, утилита отказывается
   сваливать туда двоичный MP4.

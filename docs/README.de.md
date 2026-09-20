@@ -109,12 +109,12 @@ input/                            output/timelaps/
 Beispiel-Ausgabe (alles geht nach stderr):
 
 ```text
-info: 4 .procreate file(s) in input -> output/timelaps/
-info: [1/4] input/Landscape v2.procreate -> output/timelaps/Landscape v2.mp4
-warning: [2/4] input/No Timelapse.procreate: no timelapse video inside, skipped
-error: [3/4] input/Corrupt file.procreate: input is not a valid ZIP archive ...
-info: [4/4] input/Portrait of a Cat.procreate -> output/timelaps/Portrait of a Cat.mp4
-info: summary: 2 converted, 1 without timelapse, 1 FAILED
+level=INFO msg="batch conversion started" files=4 input=input output=output/timelaps/
+level=ERROR msg="file conversion failed" input="input/Corrupt file.procreate" err="input is not a valid ZIP archive: input/Corrupt file.procreate (not a .procreate file, or truncated/corrupted)"
+level=INFO msg=converted input="input/Landscape v2.procreate" output="output/timelaps/Landscape v2.mp4"
+level=WARN msg="no timelapse video inside, skipped" input="input/No Timelapse.procreate"
+level=INFO msg=converted input="input/Portrait of a Cat.procreate" output="output/timelaps/Portrait of a Cat.mp4"
+level=INFO msg="batch completed" converted=2 existed=0 no_video=1 failed=1
 ```
 
 `--list` und `--verify` akzeptieren ebenfalls ein Verzeichnis und laufen
@@ -214,8 +214,9 @@ wie ein ausdrückliches `procreepy artwork.procreate artwork.mp4`.
 - **Datei**-Ausgabe ist atomar: eine `.partial`-Datei neben dem Ziel,
   Umbenennung erst nach Erfolg. Ein fehlgeschlagener Lauf hinterlässt keine
   Reste und beschädigt nie eine bestehende Datei.
-- stdout wird nie mit Text verschmutzt. Alle `info:`/`warning:`/`error:`-
-  Zeilen gehen nach stderr. Die einzige Ausnahme ist der
+- stdout wird nie mit Text verschmutzt. Alle strukturierten
+  `level=INFO`/`WARN`/`ERROR`-Zeilen (eine key=value-Zeile pro Event)
+  gehen nach stderr. Die einzige Ausnahme ist der
   `--list`/`--verify`-Bericht, wo stdout *das* Ergebnis ist. Wenn stdout
   ein Terminal ist, verweigert das Tool, dort einen binären MP4 abzulegen.
 

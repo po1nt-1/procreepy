@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,9 +20,7 @@ func stdThree() map[string][]byte { return stdArchiveEntries(3) }
 func TestConvertFile(t *testing.T) {
 	dir := t.TempDir()
 	writeArchive(t, dir, "in.procreate", stdThree())
-	wantErr := "info: in.procreate: 3 segment(s)\n" +
-		"info: joining segments (stream copy)\n" +
-		"info: done: out.mp4 (~6.0 s of video)\n"
+	wantErr := chattyBlock("in.procreate", 3, "out.mp4", 6.0)
 	check(t, run(t, dir, nil, "in.procreate", "out.mp4"), 0, "", wantErr)
 	eqBytes(t, "out.mp4", readAll(t, filepath.Join(dir, "out.mp4")),
 		expectedMP4(t, segN(1), segN(2), segN(3)))
@@ -32,9 +31,7 @@ func TestConvertToStdout(t *testing.T) {
 	dir := t.TempDir()
 	writeArchive(t, dir, "in.procreate", stdThree())
 	r := run(t, dir, nil, "in.procreate")
-	wantErr := "info: in.procreate: 3 segment(s)\n" +
-		"info: joining segments (stream copy)\n" +
-		"info: done: stdout (~6.0 s of video)\n"
+	wantErr := chattyBlock("in.procreate", 3, "stdout", 6.0)
 	if r.Code != 0 {
 		t.Fatalf("exit = %d, stderr %q", r.Code, r.Stderr)
 	}
@@ -52,9 +49,7 @@ func TestConvertToDirectory(t *testing.T) {
 			if err := os.MkdirAll(filepath.Join(dir, "out"), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			wantErr := "info: in.procreate: 3 segment(s)\n" +
-				"info: joining segments (stream copy)\n" +
-				"info: done: out/in.mp4 (~6.0 s of video)\n"
+			wantErr := chattyBlock("in.procreate", 3, "out/in.mp4", 6.0)
 			check(t, run(t, dir, nil, "in.procreate", out), 0, "", wantErr)
 			eqBytes(t, "out/in.mp4", readAll(t, filepath.Join(dir, "out", "in.mp4")),
 				expectedMP4(t, segN(1), segN(2), segN(3)))
@@ -68,21 +63,21 @@ func TestConvertToMissingDir(t *testing.T) {
 	// Plain path form: the parent is reported as an absolute path.
 	absParent := filepath.Join(dir, "nodir")
 	check(t, run(t, dir, nil, "in.procreate", "nodir/out.mp4"), 9, "",
-		"error: output directory does not exist: "+absParent+"\n")
+		actionErr("output directory does not exist: "+absParent))
 	// Trailing-slash form: the spelling is kept as given.
 	check(t, run(t, dir, nil, "in.procreate", "nodir/"), 9, "",
-		"error: output directory does not exist: nodir/\n")
+		actionErr("output directory does not exist: nodir/"))
 }
 
 func TestConvertGapWarn(t *testing.T) {
 	tt := []struct {
-		name   string
-		nums   []int
-		gapMsg string
+		name    string
+		nums    []int
+		missing string
 	}{
-		{"single_gap", []int{1, 2, 4}, "warning: segment numbers missing: 3 (the video would have gaps)\n"},
-		{"range_gap", []int{1, 5, 6}, "warning: segment numbers missing: 2-4 (the video would have gaps)\n"},
-		{"multi_gap", []int{1, 3, 7}, "warning: segment numbers missing: 2, 4-6 (the video would have gaps)\n"},
+		{"single_gap", []int{1, 2, 4}, "3"},
+		{"range_gap", []int{1, 5, 6}, "2-4"},
+		{"multi_gap", []int{1, 3, 7}, "2, 4-6"},
 	}
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
@@ -95,10 +90,8 @@ func TestConvertGapWarn(t *testing.T) {
 			}
 			writeArchive(t, dir, "in.procreate", entries)
 			r := run(t, dir, nil, "in.procreate", "out.mp4")
-			wantErr := tc.gapMsg +
-				fmt.Sprintf("info: in.procreate: %d segment(s)\n", len(segs)) +
-				"info: joining segments (stream copy)\n" +
-				fmt.Sprintf("info: done: out.mp4 (~%.1f s of video)\n", float64(len(segs)*2))
+			wantErr := gapWarn(tc.missing) +
+				chattyBlock("in.procreate", len(segs), "out.mp4", float64(len(segs)*2))
 			if r.Code != 0 {
 				t.Fatalf("exit = %d, stderr %q", r.Code, r.Stderr)
 			}
@@ -116,7 +109,7 @@ func TestConvertStrictGap(t *testing.T) {
 	delete(entries, "video/segments/segment-2.mp4")
 	writeArchive(t, dir, "in.procreate", entries)
 	check(t, run(t, dir, nil, "--strict", "in.procreate", "out.mp4"), 5, "",
-		"error: segment numbers missing: 2 (the video would have gaps)\n")
+		actionErr("segment numbers missing: 2 (the video would have gaps)"))
 	if _, err := os.Stat(filepath.Join(dir, "out.mp4")); !os.IsNotExist(err) {
 		t.Error("out.mp4 should not exist")
 	}
@@ -131,10 +124,7 @@ func TestConvertNonOneStart(t *testing.T) {
 		"video/segments/segment-5.mp4": segN(5),
 	}
 	writeArchive(t, dir, "in.procreate", entries)
-	wantErr := "warning: segment numbers missing: 1-4 (the video would have gaps)\n" +
-		"info: in.procreate: 1 segment(s)\n" +
-		"info: joining segments (stream copy)\n" +
-		"info: done: out.mp4 (~2.0 s of video)\n"
+	wantErr := gapWarn("1-4") + chattyBlock("in.procreate", 1, "out.mp4", 2.0)
 	check(t, run(t, dir, nil, "in.procreate", "out.mp4"), 0, "", wantErr)
 	eqBytes(t, "out.mp4", readAll(t, filepath.Join(dir, "out.mp4")), expectedMP4(t, segN(5)))
 }
@@ -144,10 +134,9 @@ func TestConvertIgnoresStrayMP4(t *testing.T) {
 	entries := stdThree()
 	entries["video/segments/thumb.mp4"] = []byte("not an mp4")
 	writeArchive(t, dir, "in.procreate", entries)
-	wantErr := "warning: ignoring video/segments/thumb.mp4: name does not match segment-<number>.mp4\n" +
-		"info: in.procreate: 3 segment(s)\n" +
-		"info: joining segments (stream copy)\n" +
-		"info: done: out.mp4 (~6.0 s of video)\n"
+	wantErr := slogLine(slog.LevelWarn,
+		"ignoring video/segments/thumb.mp4: name does not match segment-<number>.mp4") +
+		chattyBlock("in.procreate", 3, "out.mp4", 6.0)
 	check(t, run(t, dir, nil, "in.procreate", "out.mp4"), 0, "", wantErr)
 	eqBytes(t, "out.mp4", readAll(t, filepath.Join(dir, "out.mp4")),
 		expectedMP4(t, segN(1), segN(2), segN(3)))
@@ -157,9 +146,7 @@ func TestStdin(t *testing.T) {
 	arc := testkit.ArchiveBytes(stdThree(), false)
 	t.Run("to_file", func(t *testing.T) {
 		dir := t.TempDir()
-		wantErr := "info: <stdin>: 3 segment(s)\n" +
-			"info: joining segments (stream copy)\n" +
-			"info: done: out.mp4 (~6.0 s of video)\n"
+		wantErr := chattyBlock("<stdin>", 3, "out.mp4", 6.0)
 		check(t, run(t, dir, arc, "-", "out.mp4"), 0, "", wantErr)
 		eqBytes(t, "out.mp4", readAll(t, filepath.Join(dir, "out.mp4")),
 			expectedMP4(t, segN(1), segN(2), segN(3)))
@@ -167,9 +154,7 @@ func TestStdin(t *testing.T) {
 	t.Run("to_stdout", func(t *testing.T) {
 		dir := t.TempDir()
 		r := run(t, dir, arc, "-")
-		wantErr := "info: <stdin>: 3 segment(s)\n" +
-			"info: joining segments (stream copy)\n" +
-			"info: done: stdout (~6.0 s of video)\n"
+		wantErr := chattyBlock("<stdin>", 3, "stdout", 6.0)
 		if r.Code != 0 {
 			t.Fatalf("exit = %d, stderr %q", r.Code, r.Stderr)
 		}
@@ -180,7 +165,7 @@ func TestStdin(t *testing.T) {
 	})
 	t.Run("empty", func(t *testing.T) {
 		dir := t.TempDir()
-		check(t, run(t, dir, nil, "-"), 3, "", "error: stdin is empty: <stdin>\n")
+		check(t, run(t, dir, nil, "-"), 3, "", actionErr("stdin is empty: <stdin>"))
 	})
 	t.Run("dir_output_rejected", func(t *testing.T) {
 		dir := t.TempDir()
@@ -209,25 +194,21 @@ func TestQuiet(t *testing.T) {
 		delete(entries, "video/segments/segment-2.mp4")
 		writeArchive(t, dir, "in.procreate", entries)
 		check(t, run(t, dir, nil, "-q", "in.procreate", "out.mp4"), 0, "",
-			"warning: segment numbers missing: 2 (the video would have gaps)\n")
+			gapWarn("2"))
 	})
 }
 
 func TestReencodeNoop(t *testing.T) {
 	dir := t.TempDir()
 	writeArchive(t, dir, "in.procreate", stdThree())
-	wantErr := "info: in.procreate: 3 segment(s)\n" +
-		"info: joining segments (stream copy)\n" +
-		"info: done: out.mp4 (~6.0 s of video)\n"
+	wantErr := chattyBlock("in.procreate", 3, "out.mp4", 6.0)
 	check(t, run(t, dir, nil, "--reencode", "in.procreate", "out.mp4"), 0, "", wantErr)
 	eqBytes(t, "out.mp4", readAll(t, filepath.Join(dir, "out.mp4")),
 		expectedMP4(t, segN(1), segN(2), segN(3)))
 }
 
 func TestTmpdir(t *testing.T) {
-	wantErr := "info: in.procreate: 3 segment(s)\n" +
-		"info: joining segments (stream copy)\n" +
-		"info: done: out.mp4 (~6.0 s of video)\n"
+	wantErr := chattyBlock("in.procreate", 3, "out.mp4", 6.0)
 	tt := []struct {
 		name string
 		args []string
@@ -252,9 +233,7 @@ func TestTmpdir(t *testing.T) {
 func TestDevNull(t *testing.T) {
 	dir := t.TempDir()
 	writeArchive(t, dir, "in.procreate", stdThree())
-	wantErr := "info: in.procreate: 3 segment(s)\n" +
-		"info: joining segments (stream copy)\n" +
-		"info: done: /dev/null (~6.0 s of video)\n"
+	wantErr := chattyBlock("in.procreate", 3, "/dev/null", 6.0)
 	check(t, run(t, dir, nil, "in.procreate", "/dev/null"), 0, "", wantErr)
 }
 
@@ -264,9 +243,9 @@ func TestDevFull(t *testing.T) {
 	}
 	dir := t.TempDir()
 	writeArchive(t, dir, "in.procreate", stdThree())
-	wantErr := "info: in.procreate: 3 segment(s)\n" +
-		"info: joining segments (stream copy)\n" +
-		"error: failed to write the output: No space left on device\n"
+	wantErr := slogLine(slog.LevelInfo, "segments found", "input", "in.procreate", "count", 3) +
+		slogLine(slog.LevelInfo, "joining segments (stream copy)") +
+		actionErr("failed to write the output: No space left on device")
 	check(t, run(t, dir, nil, "in.procreate", "/dev/full"), 9, "", wantErr)
 }
 
@@ -304,9 +283,9 @@ func TestBrokenPipe(t *testing.T) {
 	if !ok || ee.ExitCode() != 9 {
 		t.Fatalf("want exit 9, got %v (stderr %q)", err, errb.String())
 	}
-	want := "info: in.procreate: 3 segment(s)\n" +
-		"info: joining segments (stream copy)\n" +
-		"error: failed to write to stdout: broken pipe\n"
+	want := slogLine(slog.LevelInfo, "segments found", "input", "in.procreate", "count", 3) +
+		slogLine(slog.LevelInfo, "joining segments (stream copy)") +
+		actionErr("failed to write to stdout: broken pipe")
 	if errb.String() != want {
 		t.Errorf("stderr mismatch:\ngot:  %q\nwant: %q", errb.String(), want)
 	}
@@ -360,9 +339,9 @@ func TestInterrupt(t *testing.T) {
 	if !ok || ee.ExitCode() != 130 {
 		t.Fatalf("want exit 130, got %v (stderr %q)", err, errb.String())
 	}
-	want := "info: big.procreate: 30 segment(s)\n" +
-		"info: joining segments (stream copy)\n" +
-		"error: interrupted\n"
+	want := slogLine(slog.LevelInfo, "segments found", "input", "big.procreate", "count", 30) +
+		slogLine(slog.LevelInfo, "joining segments (stream copy)") +
+		actionErr("interrupted")
 	if got := errb.String(); got != want {
 		t.Errorf("stderr = %q", got)
 	}
@@ -404,7 +383,7 @@ func TestOutputDirNotWritable(t *testing.T) {
 	}
 	defer os.Chmod(ro, 0o755)
 	check(t, run(t, dir, nil, "in.procreate", filepath.Join("ro", "out.mp4")), 9, "",
-		"error: output directory is not writable: "+ro+"\n")
+		actionErr("output directory is not writable: "+ro))
 }
 
 // assertNoPartial fails if an atomic-write temp file survived.
