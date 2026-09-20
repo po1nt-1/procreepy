@@ -24,12 +24,6 @@ variables:
   CGO_ENABLED: "0"
   GIT_DEPTH: "0"
 
-# Common, deterministic build flags:
-#   -trimpath      no local filesystem paths embedded in the binary
-#   -buildvcs=false no VCS revision/state embedded in the binary
-#   -ldflags "-s -w" stripped symbol/debug tables
-BUILD_FLAGS: "-trimpath -buildvcs=false -ldflags=-s\\ -w"
-
 sast:
   stage: test
 
@@ -79,7 +73,7 @@ build:
     - if [ "$GOOS" = "windows" ]; then EXE=".exe"; fi
     - VERSION="${CI_COMMIT_TAG:-dev-${CI_COMMIT_SHORT_SHA}}"
     - BIN="procreepy-$VERSION-$GOOS-$GOARCH$EXE"
-    - go build $BUILD_FLAGS -o "$BIN" ./cmd/procreepy
+    - go build -trimpath -buildvcs=false -ldflags="-s -w" -o "$BIN" ./cmd/procreepy
     - mkdir -p dist
     - mv "$BIN" dist/
     # Normalized tar+gzip (fixed mtime/owner, no gzip timestamp) so the
@@ -116,9 +110,9 @@ dist:
     GOOS: linux
     GOARCH: amd64
   script:
-    - go build $BUILD_FLAGS -o /tmp/pass1 ./cmd/procreepy
+    - go build -trimpath -buildvcs=false -ldflags="-s -w" -o /tmp/pass1 ./cmd/procreepy
     - rm -rf "$(go env GOCACHE)"
-    - go build $BUILD_FLAGS -o /tmp/pass2 ./cmd/procreepy
+    - go build -trimpath -buildvcs=false -ldflags="-s -w" -o /tmp/pass2 ./cmd/procreepy
     - H1="$(sha256sum /tmp/pass1 | cut -d' ' -f1)"
     - H2="$(sha256sum /tmp/pass2 | cut -d' ' -f1)"
     - test "$H1" = "$H2"
