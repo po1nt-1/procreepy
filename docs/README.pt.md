@@ -1,8 +1,8 @@
 # procreepy
 
-Uma pequena utilidade Unix para Linux: extrai do arquivo `.procreate` o
-timelapse de arquivo já pronto e junta seus segmentos em um único MP4.
-Nada é re-codificado (stream copy), nada é renderizado.
+Uma pequena utilidade Unix multiplataforma (Linux, Windows, macOS): extrai do
+arquivo `.procreate` o timelapse de arquivo já pronto e junta seus segmentos
+em um único MP4. Nada é re-codificado (stream copy), nada é renderizado.
 
 `.procreate` é um ZIP. Se a gravação do timelapse estava ativada, dentro há
 
@@ -20,12 +20,39 @@ estão. Ela não abre `Document.archive`, camadas nem chunks raster
 
 ## Requisitos
 
-Sem dependências externas: nem `ffmpeg`, nem `ffprobe`, nem Python são
+Sem dependências externas: nem `ffmpeg` nem `ffprobe` são
 necessários. Para compilar, só é preciso o Go (a versão está no `go.mod`).
 
 ```bash
 go build -o procreepy ./cmd/procreepy
 ```
+
+### Compilar para outros sistemas operacionais
+
+O projeto é Go puro e compila em modo cruzado sem problemas para todos os
+destinos suportados. De qualquer plataforma, qualquer um destes comandos
+funciona:
+
+| Destino | Comando |
+|---|---|
+| Linux x86-64 | `GOOS=linux GOARCH=amd64 go build -o procreepy ./cmd/procreepy` |
+| Linux ARM de 64 bits (Raspberry Pi, Graviton) | `GOOS=linux GOARCH=arm64 go build -o procreepy ./cmd/procreepy` |
+| Linux ARM de 32 bits | `GOOS=linux GOARCH=arm GOARM=7 go build -o procreepy ./cmd/procreepy` |
+| Windows x86-64 (10/11) | `GOOS=windows GOARCH=amd64 go build -o procreepy.exe ./cmd/procreepy` |
+| Windows ARM de 64 bits | `GOOS=windows GOARCH=arm64 go build -o procreepy.exe ./cmd/procreepy` |
+| macOS Intel | `GOOS=darwin GOARCH=amd64 go build -o procreepy ./cmd/procreepy` |
+| macOS Apple Silicon (M1–M5) | `GOOS=darwin GOARCH=arm64 go build -o procreepy ./cmd/procreepy` |
+
+Todas as compilações são estáticas (sem cgo): um binário Linux roda em
+qualquer distribuição, seja qual for a versão da glibc. A pipeline do
+GitLab CI compila exatamente estes destinos em cada commit; o job `dist`
+publica os tarballs com um manifesto `SHA256SUMS`, e os jobs `repro:*`
+provam que os binários são reproduzíveis bit a bit.
+
+- Linux/macOS: não há passo de instalação, execute o binário diretamente.
+- Windows: o binário não é assinado, então o SmartScreen pode exibir
+  «Seu PC foi protegido» — escolha **Mais informações → Executar assim
+  mesmo**.
 
 ## Uso
 

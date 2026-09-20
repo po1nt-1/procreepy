@@ -1,6 +1,6 @@
 # procreepy
 
-लिनक्स के लिए एक छोटी Unix उपयोगिता: यह `.procreate` फ़ाइल से तैयार
+हर OS के लिए एक छोटी Unix उपयोगिता (Linux, Windows, macOS): यह `.procreate` फ़ाइल से तैयार
 आर्काइव टाइमलाप्स निकालती है और उसके खंडों को एक ही MP4 में जोड़ देती है।
 कोई री-एन्कोडिंग नहीं (स्ट्रीम कॉपी), कोई रेंडरिंग नहीं।
 
@@ -21,12 +21,38 @@ parse करती है, और इन्हें एक moov-first MP4 म�
 
 ## आवश्यकताएँ
 
-कोई बाहरी निर्भरता नहीं: न `ffmpeg`, न `ffprobe`, न Python। बिल्ड के लिए
+कोई बाहरी निर्भरता नहीं: न `ffmpeg`, न `ffprobe`। बिल्ड के लिए
 केवल Go चाहिए (version `go.mod` में है)।
 
 ```bash
 go build -o procreepy ./cmd/procreepy
 ```
+
+### दुरसरी OS केलिए बिल्ड करन
+
+ये प्रोजेक्ट शुद्ध Go हαι और सभाइ समर्थित target केलिए साफ-साफ़
+cross-compile होतै है। किसी भी platform से, इनमें से कोई भी command
+चलेगी:
+
+| Target | Command |
+|---|---|
+| Linux x86-64 | `GOOS=linux GOARCH=amd64 go build -o procreepy ./cmd/procreepy` |
+| Linux ARM 64-bit (Raspberry Pi, Graviton) | `GOOS=linux GOARCH=arm64 go build -o procreepy ./cmd/procreepy` |
+| Linux ARM 32-bit | `GOOS=linux GOARCH=arm GOARM=7 go build -o procreepy ./cmd/procreepy` |
+| Windows x86-64 (10/11) | `GOOS=windows GOARCH=amd64 go build -o procreepy.exe ./cmd/procreepy` |
+| Windows ARM 64-bit | `GOOS=windows GOARCH=arm64 go build -o procreepy.exe ./cmd/procreepy` |
+| macOS Intel | `GOOS=darwin GOARCH=amd64 go build -o procreepy ./cmd/procreepy` |
+| macOS Apple Silicon (M1–M5) | `GOOS=darwin GOARCH=arm64 go build -o procreepy ./cmd/procreepy` |
+
+सभी builds static हैं (cgo नहीं): Linux binary किसी भी distribution पर
+चलती है, चाहे उसकी glibc की version कुछ भी हो। GitLab CI pipeline हर
+commit पर बिल्कुल ये target बिल्ड करती है; `dist` job tarball और
+`SHA256SUMS` manifest publish करता है, और `repro:*` jobs साबित करते हैं
+कि binaries bit-by-bit reproduce होती हैं।
+
+- Linux/macOS: installation step नहीं है, binary सीधे चलाइए।
+- Windows: binary sign नहीं है, इसलिये SmartScreen "आपके PC की सुरक्षा हो
+  गई" दिखा सकता है — **और जानकारी → फिर भी चलाइए** चुनिए।
 
 ## उपयोग
 

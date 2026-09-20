@@ -1,8 +1,9 @@
 # procreepy
 
-Ein kleines Unix-Tool für Linux: Entnimmt einer `.procreate`-Datei den
-fertigen Archiv-Timelapse und fügt seine Segmente zu einer einzigen MP4
-zusammen. Nichts wird neu kodiert (Stream Copy), nichts wird gerendert.
+Ein kleines plattformübergreifendes Unix-Tool (Linux, Windows, macOS):
+Entnimmt einer `.procreate`-Datei den fertigen Archiv-Timelapse und fügt
+seine Segmente zu einer einzigen MP4 zusammen. Nichts wird neu kodiert
+(Stream Copy), nichts wird gerendert.
 
 `.procreate` ist ein ZIP. Wenn die Timelapse-Aufnahme aktiviert war,
 befindet sich darin
@@ -21,12 +22,38 @@ nicht geöffnet.
 
 ## Anforderungen
 
-Keine externen Abhängigkeiten: weder `ffmpeg` noch `ffprobe` noch Python.
+Keine externen Abhängigkeiten: weder `ffmpeg` noch `ffprobe`.
 Zum Bauen wird nur Go benötigt (die Version steht in `go.mod`).
 
 ```bash
 go build -o procreepy ./cmd/procreepy
 ```
+
+### Für andere Betriebssysteme bauen
+
+Das Projekt ist reines Go und lässt sich sauber für jedes unterstützte Ziel
+cross-kompilieren. Von jeder Plattform aus funktioniert jeder dieser Befehle:
+
+| Ziel | Befehl |
+|---|---|
+| Linux x86-64 | `GOOS=linux GOARCH=amd64 go build -o procreepy ./cmd/procreepy` |
+| Linux ARM 64-Bit (Raspberry Pi, Graviton) | `GOOS=linux GOARCH=arm64 go build -o procreepy ./cmd/procreepy` |
+| Linux ARM 32-Bit | `GOOS=linux GOARCH=arm GOARM=7 go build -o procreepy ./cmd/procreepy` |
+| Windows x86-64 (10/11) | `GOOS=windows GOARCH=amd64 go build -o procreepy.exe ./cmd/procreepy` |
+| Windows ARM 64-Bit | `GOOS=windows GOARCH=arm64 go build -o procreepy.exe ./cmd/procreepy` |
+| macOS Intel | `GOOS=darwin GOARCH=amd64 go build -o procreepy ./cmd/procreepy` |
+| macOS Apple Silicon (M1–M5) | `GOOS=darwin GOARCH=arm64 go build -o procreepy ./cmd/procreepy` |
+
+Alle Builds sind statisch (ohne cgo): Ein Linux-Binary läuft auf jeder
+Distribution, unabhängig von deren glibc-Version. Die GitLab-CI-Pipeline
+baut genau diese Ziele bei jedem Commit; der Job `dist` veröffentlicht die
+Tarballs plus eine `SHA256SUMS`-Datei, und die Jobs `repro:*` beweisen, dass
+die Binaries bitgenau reproduzierbar sind.
+
+- Linux/macOS: Kein Installationsschritt, Binary direkt ausführen.
+- Windows: Das Binary ist nicht signiert, daher kann SmartScreen „Ihren PC
+  geschützt" anzeigen — **Weitere Informationen → Trotzdem ausführen**
+  wählen.
 
 ## Verwendung
 

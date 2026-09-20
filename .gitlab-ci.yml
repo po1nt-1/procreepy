@@ -1,19 +1,155 @@
 # You can override the included template(s) by including variable overrides
 # SAST customization: https://docs.gitlab.com/user/application_security/sast/#available-cicd-variables
-# Secret Detection customization: https://docs.gitlab.com/user/application_security/secret_detection/pipeline/configure/
-# Dependency Scanning customization: https://docs.gitlab.com/user/application_security/dependency_scanning/dependency_scanning_sbom/#customizing-analyzer-behavior
-# Container Scanning customization: https://docs.gitlab.com/user/application_security/container_scanning/#customizing-analyzer-behavior
+# Secret Detection customization: https://docs.gitlab.com/ci/variables/secret_detection/
 # Note that environment variables can be set in several places
 # See https://docs.gitlab.com/ci/variables/#cicd-variable-precedence
 stages:
 - test
+- build
+- verify
 - secret-detection
-sast:
-  stage: test
+
 include:
 - template: Security/SAST.gitlab-ci.yml
 - template: Security/Secret-Detection.gitlab-ci.yml
+
 variables:
+  GO_IMAGE: golang:1.27.1
   SECRET_DETECTION_ENABLED: 'true'
+  # Reproducibility: pin the toolchain and forbid any network/toolchain drift.
+  # The module has zero dependencies, so GOPROXY=off must always hold.
+  GOTOOLCHAIN: "local"
+  GOPROXY: "off"
+  GOFLAGS: "-mod=readonly"
+  CGO_ENABLED: "0"
+  GIT_DEPTH: "0"
+
+# Common, deterministic build flags:
+#   -trimpath      no local filesystem paths embedded in the binary
+#   -buildvcs=false no VCS revision/state embedded in the binary
+#   -ldflags "-s -w" stripped symbol/debug tables
+BUILD_FLAGS: "-trimpath -buildvcs=false -ldflags=-s\\ -w"
+
+sast:
+  stage: test
+
 secret_detection:
   stage: secret-detection
+
+test:
+  stage: test
+  image: $GO_IMAGE
+  script:
+    - go vet ./...
+    # Full suite without instrumentation: the e2e package builds its own
+    # instrumented binary and self-aggregates the repo-level cover.e2e.out,
+    # so it must never run under -coverprofile (the two writers collide).
+    - go test ./... -count=1
+    # Statement-coverage profile over all packages except e2e (whose data
+    # already arrives via cover.e2e.out). Scoped to ./internal/... so cmd/
+    # is counted only once, from the e2e binary.
+    - go test $(go list ./internal/... | grep -v internal/e2e) -count=1 -coverprofile=xpkg.out -coverpkg=./internal/...
+    # Merge both profiles (union) and render a Cobertura report for MR
+    # diff annotations; also emit the merged text profile for the total.
+    - go run ./tools/cov2cobertura -o coverage.xml -merged merged.out -strip procreepy/ xpkg.out cover.e2e.out
+    - go tool cover -func merged.out | grep '^total'
+  coverage: '/total:\s+\(statements\)\s+\d+.\d+%/'
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml
+
+# Release builds for the supported platforms. The code is pure Go with
+# per-OS shims (io_linux.go / io_darwin.go / io_windows.go), so all three
+# GOOS targets cross-compile with CGO_ENABLED=0.
+build:
+  stage: build
+  image: $GO_IMAGE
+  parallel:
+    matrix:
+    - GOOS: linux
+      GOARCH: [amd64, arm64, arm]
+    - GOOS: windows
+      GOARCH: [amd64, arm64]
+    - GOOS: darwin
+      GOARCH: [amd64, arm64]
+  script:
+    - EXE=""
+    - if [ "$GOOS" = "windows" ]; then EXE=".exe"; fi
+    - VERSION="${CI_COMMIT_TAG:-dev-${CI_COMMIT_SHORT_SHA}}"
+    - BIN="procreepy-$VERSION-$GOOS-$GOARCH$EXE"
+    - go build $BUILD_FLAGS -o "$BIN" ./cmd/procreepy
+    - mkdir -p dist
+    - mv "$BIN" dist/
+    # Normalized tar+gzip (fixed mtime/owner, no gzip timestamp) so the
+    # tarball itself is bit-identical between runs of the same source.
+    - tar --sort=name --owner=0 --group=0 --numeric-owner --mtime=@0 -cf - -C dist "$BIN" | gzip -n > "dist/$BIN.tar.gz"
+    - rm "dist/$BIN"
+    - "sha256sum \"dist/$BIN.tar.gz\""
+  artifacts:
+    paths:
+    - dist/
+    expire_in: 30 days
+
+# Aggregate every architecture into one dist/ tree with a checksum manifest.
+dist:
+  stage: verify
+  image: $GO_IMAGE
+  needs:
+  - job: build
+    artifacts: true
+  script:
+    - cd dist
+    - sha256sum ./*.tar.gz > SHA256SUMS
+    - cat SHA256SUMS
+  artifacts:
+    paths:
+    - dist/
+    expire_in: 30 days
+
+# Reproducibility proof: the same sources built on two different base
+# images (glibc vs musl) must yield the identical linux/amd64 binary.
+.repro-build:
+  stage: verify
+  variables:
+    GOOS: linux
+    GOARCH: amd64
+  script:
+    - go build $BUILD_FLAGS -o /tmp/pass1 ./cmd/procreepy
+    - rm -rf "$(go env GOCACHE)"
+    - go build $BUILD_FLAGS -o /tmp/pass2 ./cmd/procreepy
+    - H1="$(sha256sum /tmp/pass1 | cut -d' ' -f1)"
+    - H2="$(sha256sum /tmp/pass2 | cut -d' ' -f1)"
+    - test "$H1" = "$H2"
+    - echo "$H1" > "repro-$FLAVOR.sha256"
+
+repro:glibc:
+  extends: .repro-build
+  image: $GO_IMAGE
+  variables:
+    FLAVOR: glibc
+  artifacts:
+    paths:
+    - repro-glibc.sha256
+
+repro:musl:
+  extends: .repro-build
+  image: golang:1.27.1-alpine
+  variables:
+    FLAVOR: musl
+  artifacts:
+    paths:
+    - repro-musl.sha256
+
+repro:compare:
+  stage: verify
+  image: $GO_IMAGE
+  needs:
+  - job: repro:glibc
+    artifacts: true
+  - job: repro:musl
+    artifacts: true
+  script:
+    - cmp repro-glibc.sha256 repro-musl.sha256
+    - echo "reproducible: $(cat repro-glibc.sha256) (glibc == musl)"

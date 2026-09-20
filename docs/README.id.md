@@ -1,8 +1,9 @@
 # procreepy
 
-Utilitas Unix kecil untuk Linux: mengekstrak timelapse arsip yang sudah jadi
-dari berkas `.procreate` dan menyatukan segmennya menjadi satu MP4. Tidak ada
-yang di-encode ulang (stream copy), tidak ada rendering.
+Utilitas Unix kecil multiplatform (Linux, Windows, macOS): mengekstrak
+timelapse arsip yang sudah jadi dari berkas `.procreate` dan menyatukan
+segmennya menjadi satu MP4. Tidak ada yang di-encode ulang (stream copy),
+tidak ada rendering.
 
 `.procreate` adalah sebuah ZIP. Jika perekaman timelapse diaktifkan, di
 dalammnya ada
@@ -21,12 +22,39 @@ Ia tidak pernah membuka `Document.archive`, layer, atau chunk raster
 
 ## Kebutuhan
 
-Tanpa dependensi eksternal: tidak perlu `ffmpeg`, tidak perlu `ffprobe`, tidak
-perlu Python. Untuk kompilasi hanya dibutuhkan Go (versi ada di `go.mod`).
+Tanpa dependensi eksternal: tidak perlu `ffmpeg`, tidak perlu `ffprobe`.
+Untuk kompilasi hanya dibutuhkan Go (versi ada di `go.mod`).
 
 ```bash
 go build -o procreepy ./cmd/procreepy
 ```
+
+### Membangun untuk sistem operasi lain
+
+Proyek ini murni Go dan dapat di-cross-compile dengan bersih untuk semua
+target yang didukung. Dari platform apa pun, salah satu perintah ini
+berfungsi:
+
+| Target | Perintah |
+|---|---|
+| Linux x86-64 | `GOOS=linux GOARCH=amd64 go build -o procreepy ./cmd/procreepy` |
+| Linux ARM 64-bit (Raspberry Pi, Graviton) | `GOOS=linux GOARCH=arm64 go build -o procreepy ./cmd/procreepy` |
+| Linux ARM 32-bit | `GOOS=linux GOARCH=arm GOARM=7 go build -o procreepy ./cmd/procreepy` |
+| Windows x86-64 (10/11) | `GOOS=windows GOARCH=amd64 go build -o procreepy.exe ./cmd/procreepy` |
+| Windows ARM 64-bit | `GOOS=windows GOARCH=arm64 go build -o procreepy.exe ./cmd/procreepy` |
+| macOS Intel | `GOOS=darwin GOARCH=amd64 go build -o procreepy ./cmd/procreepy` |
+| macOS Apple Silicon (M1–M5) | `GOOS=darwin GOARCH=arm64 go build -o procreepy ./cmd/procreepy` |
+
+Semua build bersifat statis (tanpa cgo): biner Linux berjalan di distribusi
+apa pun, berapapun versi glibc-nya. Pipeline GitLab CI membangun tepat
+target-target ini di setiap commit; job `dist` menerbitkan tarball beserta
+manifest `SHA256SUMS`, dan job `repro:*` membuktikan bahwa biner tersebut
+dapat direproduksi bit demi bit.
+
+- Linux/macOS: tidak ada langkah instalasi, jalankan binernya langsung.
+- Windows: biner ini tidak bertanda tangan, jadi SmartScreen mungkin
+  menampilkan "PC Anda telah dilindungi" — pilih **Info lainnya → Jalankan
+  saja**.
 
 ## Pemakaian
 

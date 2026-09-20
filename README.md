@@ -1,8 +1,8 @@
 # procreepy
 
-A small Unix utility for Linux: extracts the ready-made archive timelapse
-from a `.procreate` file and joins its segments into a single MP4. Nothing is
-re-encoded (stream copy), nothing is rendered.
+A small cross-platform utility (Linux, Windows, macOS): extracts the
+ready-made archive timelapse from a `.procreate` file and joins its segments
+into a single MP4. Nothing is re-encoded (stream copy), nothing is rendered.
 
 `.procreate` is a ZIP archive. If timelapse recording was enabled, it
 contains
@@ -20,12 +20,37 @@ never opens `Document.archive`, layers, or raster chunks (`*.lz4`).
 
 ## Requirements
 
-No external dependencies: no `ffmpeg`, no `ffprobe`, no Python. Building
-requires only Go (the version is in `go.mod`).
+No external dependencies: no `ffmpeg`, no `ffprobe`. Building requires
+only Go (the version is in `go.mod`).
 
 ```bash
 go build -o procreepy ./cmd/procreepy
 ```
+
+### Building for other operating systems
+
+The project is pure Go and cross-compiles cleanly for every supported
+target. From any platform, any of these works:
+
+| Target | Command |
+|---|---|
+| Linux x86-64 | `GOOS=linux GOARCH=amd64 go build -o procreepy ./cmd/procreepy` |
+| Linux ARM 64-bit (Raspberry Pi, Graviton) | `GOOS=linux GOARCH=arm64 go build -o procreepy ./cmd/procreepy` |
+| Linux ARM 32-bit | `GOOS=linux GOARCH=arm GOARM=7 go build -o procreepy ./cmd/procreepy` |
+| Windows x86-64 (10/11) | `GOOS=windows GOARCH=amd64 go build -o procreepy.exe ./cmd/procreepy` |
+| Windows ARM 64-bit | `GOOS=windows GOARCH=arm64 go build -o procreepy.exe ./cmd/procreepy` |
+| macOS Intel | `GOOS=darwin GOARCH=amd64 go build -o procreepy ./cmd/procreepy` |
+| macOS Apple Silicon (M1–M5) | `GOOS=darwin GOARCH=arm64 go build -o procreepy ./cmd/procreepy` |
+
+All builds are static (no cgo): a Linux binary runs on any distribution
+regardless of its glibc version. The GitLab CI pipeline builds exactly these
+targets on every commit; the `dist` job publishes the tarballs plus a
+`SHA256SUMS` manifest, and the `repro:*` jobs prove the binaries are
+bit-for-bit reproducible.
+
+- Linux/macOS: no installation step, run the binary directly.
+- Windows: the binary is unsigned, so SmartScreen may show "Protected your
+  PC" — choose **More info → Run anyway**.
 
 ## Usage
 

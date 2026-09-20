@@ -1,8 +1,8 @@
 # procreepy
 
-一个面向 Linux 的小 Unix 工具:从 `.procreate` 文件中提取现成的归档延时
-摄影(timelapse),并将其各段合并为一个 MP4。不做任何重编码(stream copy),
-也不做任何渲染。
+一个跨平台的小 Unix 工具（Linux、Windows、macOS）：从 `.procreate` 文件中提
+取现成的归档延时摄影（timelapse），并将其各段合并为一个 MP4。不做任何重编码
+（stream copy），也不做任何渲染。
 
 `.procreate` 是一个 ZIP 文件。如果录制时开启了延时摄影,里面会有
 
@@ -18,12 +18,36 @@ video/segments/segment-2.mp4
 
 ## 要求
 
-无任何外部依赖:不需要 `ffmpeg`、`ffprobe`,也不需要 Python。编译只需要 Go
+无任何外部依赖:不需要 `ffmpeg`、`ffprobe`。编译只需要 Go
 (版本见 `go.mod`)。
 
 ```bash
 go build -o procreepy ./cmd/procreepy
 ```
+
+### 为其他操作系统构建
+
+项目是纯 Go 代码，可以干净地交叉编译到所有支持的目标平台。在任何平台上，
+以下任一命令均可使用：
+
+| 目标 | 命令 |
+|---|---|
+| Linux x86-64 | `GOOS=linux GOARCH=amd64 go build -o procreepy ./cmd/procreepy` |
+| Linux ARM 64 位（树莓派、Graviton） | `GOOS=linux GOARCH=arm64 go build -o procreepy ./cmd/procreepy` |
+| Linux ARM 32 位 | `GOOS=linux GOARCH=arm GOARM=7 go build -o procreepy ./cmd/procreepy` |
+| Windows x86-64（10/11） | `GOOS=windows GOARCH=amd64 go build -o procreepy.exe ./cmd/procreepy` |
+| Windows ARM 64 位 | `GOOS=windows GOARCH=arm64 go build -o procreepy.exe ./cmd/procreepy` |
+| macOS Intel | `GOOS=darwin GOARCH=amd64 go build -o procreepy ./cmd/procreepy` |
+| macOS Apple Silicon（M1–M5） | `GOOS=darwin GOARCH=arm64 go build -o procreepy ./cmd/procreepy` |
+
+所有构建均为静态（无 cgo）：Linux 二进制文件可在任何发行版上运行，无论其
+glibc 版本如何。GitLab CI 流水线在每次提交时都会构建上述目标；`dist` 任务
+会发布 tarball 和 `SHA256SUMS` 清单，`repro:*` 任务则证明二进制文件可以
+逐位复现。
+
+- Linux/macOS：无需安装步骤，直接运行二进制文件。
+- Windows：二进制文件未经签名，SmartScreen 可能提示“已保护你的电脑”——请
+  选择**更多信息 → 仍要运行**。
 
 ## 用法
 

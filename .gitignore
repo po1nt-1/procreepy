@@ -1,3 +1,25 @@
+# Build artifacts (local builds and CI dist output)
 /procreepy
+/procreepy.exe
+dist/
+*.test
+
+# Local e2e scratch dirs
 /input/
 /output/
+
+# Generated coverage data and reports (recreated by the CI test job;
+# the Cobertura report is uploaded as a pipeline artifact)
+cover.base.out
+xpkg.out
+cover.e2e.out
+coverage.xml
+merged.out
+
+# Editor and OS noise
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db

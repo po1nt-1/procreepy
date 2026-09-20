@@ -1,7 +1,8 @@
 # procreepy
 
-أداة Unix صغيرة لليَنكس: تستخرج مَجموع فيديو التايم-لابس الجاهزة من ملف
-`.procreate` وتُجمّع مقاطعه في ملف MP4 واحد. لا يُعاد ترميز أي شيء (stream copy)، ولا يتم أي رندر.
+أداة Unix صغيرة متعددة المنصات (Linux وWindows وmacOS): تستخرج مَجموع فيديو
+التايم-لابس الجاهزة من ملف `.procreate` وتُجمّع مقاطعه في ملف MP4 واحد. لا
+يُعاد ترميز أي شيء (stream copy)، ولا يتم أي رندر.
 
 `.procreate` هو ZIP. إذا كان تسجيل التايم-لابس مفعلاً، ففيه
 
@@ -18,12 +19,37 @@ moov-first مع نسخ الإطارات كما هي. لا تفتح `Document.arc
 
 ## المتطلبات
 
-لا تبعيات خارجية: لا حاجة إلى `ffmpeg` ولا `ffprobe` ولا Python. للتجميع
+لا تبعيات خارجية: لا حاجة إلى `ffmpeg` ولا `ffprobe`. للتجميع
 يُكفي Go (النسخة في `go.mod`).
 
 ```bash
 go build -o procreepy ./cmd/procreepy
 ```
+
+### البناء لأنظمة تشغيل أخرى
+
+المشروع Go خالص ويُجمَّع عبر التجميع المتقاطع (cross-compile) بشكل سليم
+لجميع المنصات المدعومة. من أي منصة، يعمل أيٌّ من هذه الأوامر:
+
+| المنصة | الأمر |
+|---|---|
+| Linux x86-64 | `GOOS=linux GOARCH=amd64 go build -o procreepy ./cmd/procreepy` |
+| Linux ARM 64-bit (Raspberry Pi, Graviton) | `GOOS=linux GOARCH=arm64 go build -o procreepy ./cmd/procreepy` |
+| Linux ARM 32-bit | `GOOS=linux GOARCH=arm GOARM=7 go build -o procreepy ./cmd/procreepy` |
+| Windows x86-64 (10/11) | `GOOS=windows GOARCH=amd64 go build -o procreepy.exe ./cmd/procreepy` |
+| Windows ARM 64-bit | `GOOS=windows GOARCH=arm64 go build -o procreepy.exe ./cmd/procreepy` |
+| macOS Intel | `GOOS=darwin GOARCH=amd64 go build -o procreepy ./cmd/procreepy` |
+| macOS Apple Silicon (M1–M5) | `GOOS=darwin GOARCH=arm64 go build -o procreepy ./cmd/procreepy` |
+
+جميع التجميعات ثابتة (بدون cgo): ملف التنفيذ الخاص بـ Linux يعمل على أي
+توزيعة مهما كان إصدار glibc فيها. خط GitLab CI يجمِّع تمامًا هذه
+المنصات مع كل commit؛ مهمة `dist` تنشر حزم tarball مع قائمة `SHA256SUMS`،
+ومهام `repro:*` تثبت أن الملفات التنفيذية قابلة لإعادة الإنتاج بتطابق
+تام عند مستوى البت.
+
+- Linux/macOS: لا توجد خطوة تثبيت، شغِّل ملف التنفيذ مباشرة.
+- Windows: الملف غير موقَّع، لذلك قد يعرض SmartScreen "تم حماية جهازك" —
+  اختر **المزيد من المعلومات → تنفيذ على أي حال**.
 
 ## الاستعمال
 

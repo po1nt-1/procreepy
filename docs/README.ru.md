@@ -1,8 +1,8 @@
 # procreepy
 
-Маленькая Unix-утилита для Linux: достаёт из `.procreate` уже готовый
-архивный timelapse и собирает из его сегментов один MP4. Ничего не
-перекодирует (stream copy), ничего не рендерит.
+Маленькая кроссплатформенная Unix-утилита (Linux, Windows, macOS): достаёт
+из `.procreate` уже готовый архивный timelapse и собирает из его сегментов
+один MP4. Ничего не перекодирует (stream copy), ничего не рендерит.
 
 `.procreate` — это ZIP. Если запись таймлапса была включена, внутри лежит
 
@@ -19,12 +19,37 @@ raster-чанки (`*.lz4`) она не открывает вообще.
 
 ## Требования
 
-Никаких внешних зависимостей: ни `ffmpeg`, ни `ffprobe`, ни Python не нужны.
-Собирать нужен только Go (версия — в `go.mod`).
+Никаких внешних зависимостей: ни `ffmpeg`, ни `ffprobe` не нужны.
+Для сборки достаточно только Go (версия — в `go.mod`).
 
 ```bash
 go build -o procreepy ./cmd/procreepy
 ```
+
+### Сборка под другие ОС
+
+Проект написан на чистом Go и без проблем кросс-компилируется во все
+поддерживаемые цели. С любой платформы работает любой из этих команд:
+
+| Цель | Команда |
+|---|---|
+| Linux x86-64 | `GOOS=linux GOARCH=amd64 go build -o procreepy ./cmd/procreepy` |
+| Linux ARM 64-bit (Raspberry Pi, Graviton) | `GOOS=linux GOARCH=arm64 go build -o procreepy ./cmd/procreepy` |
+| Linux ARM 32-bit | `GOOS=linux GOARCH=arm GOARM=7 go build -o procreepy ./cmd/procreepy` |
+| Windows x86-64 (10/11) | `GOOS=windows GOARCH=amd64 go build -o procreepy.exe ./cmd/procreepy` |
+| Windows ARM 64-bit | `GOOS=windows GOARCH=arm64 go build -o procreepy.exe ./cmd/procreepy` |
+| macOS Intel | `GOOS=darwin GOARCH=amd64 go build -o procreepy ./cmd/procreepy` |
+| macOS Apple Silicon (M1–M5) | `GOOS=darwin GOARCH=arm64 go build -o procreepy ./cmd/procreepy` |
+
+Все сборки статические (без cgo): Linux-бинарник работает на любом
+дистрибутиве, независимо от версии glibc. Конвейер GitLab CI собирает
+именно эти цели при каждом commit; задача `dist` публикует tarball-ы и
+манифест `SHA256SUMS`, а задачи `repro:*` доказывают, что бинарники
+воспроизводятся побитово.
+
+- Linux/macOS: установка не нужна — запускайте бинарник напрямую.
+- Windows: бинарник не подписан, поэтому SmartScreen может показать
+  «Защищено ваше устройство» — выберите **Подробнее → Выполнять всё равно**.
 
 ## Использование
 
