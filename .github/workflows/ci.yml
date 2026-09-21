@@ -13,6 +13,14 @@ concurrency:
 
 permissions:
   contents: read
+  # CodeQL uploads its results as code scanning alerts.
+  security-events: write
+
+# Container jobs default to `sh` (dash); the scripts use bash expansions
+# like ${GITHUB_SHA::7}.
+defaults:
+  run:
+    shell: bash
 
 env:
   GOTOOLCHAIN: "local"
@@ -113,6 +121,9 @@ jobs:
       with:
         pattern: dist-*
         path: dist
+        # Flatten: a bare pattern nests each artifact into a sub-directory,
+        # which would prefix every SHA256SUMS entry (GitLab's are flat).
+        merge-multiple: true
     - name: checksum manifest
       run: |
         cd dist
@@ -158,11 +169,15 @@ jobs:
     needs: repro
     runs-on: ubuntu-latest
     steps:
+    # Single-name downloads land at the workspace root; a pattern with a
+    # path nests each artifact into its own sub-directory.
     - uses: actions/download-artifact@v4
       with:
-        pattern: repro-*.sha256
-        path: repro
+        name: repro-glibc.sha256
+    - uses: actions/download-artifact@v4
+      with:
+        name: repro-musl.sha256
     - name: glibc == musl
       run: |
-        cmp repro/repro-glibc.sha256 repro/repro-musl.sha256
-        echo "reproducible: $(cat repro/repro-glibc.sha256) (glibc == musl)"
+        cmp repro-glibc.sha256 repro-musl.sha256
+        echo "reproducible: $(cat repro-glibc.sha256) (glibc == musl)"

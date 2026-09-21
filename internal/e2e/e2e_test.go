@@ -54,7 +54,10 @@ func buildBinary() (string, error) {
 		return "", err
 	}
 	bin := filepath.Join(dir, "procreepy")
-	cmd := exec.Command("go", "build", "-cover", "-o", bin, "procreepy/cmd/procreepy")
+	// -buildvcs=false: the build must not depend on the checkout's git
+	// state; in CI the process runs as another user than the file owner
+	// and git refuses with exit 128.
+	cmd := exec.Command("go", "build", "-cover", "-buildvcs=false", "-o", bin, "procreepy/cmd/procreepy")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("%v: %s", err, out)
 	}
