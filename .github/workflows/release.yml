@@ -19,15 +19,8 @@ jobs:
         # and generates the changelog from the commit range.
         fetch-depth: 0
     - name: verify tag format
-      # The trigger glob (v*) cannot express the semver digit pattern, so
-      # enforce the exact pattern (same as the release tag rule) before
-      # anything is published.
-      run: |
-        re='^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9._]+)?$'
-        if [[ ! "${GITHUB_REF_NAME}" =~ $re ]]; then
-          echo "'${GITHUB_REF_NAME}' does not match the release tag pattern"
-          exit 1
-        fi
+      # Refuses to publish anything that is not a (pre)release version.
+      uses: ./.github/actions/tag-guard
     - name: install goreleaser
       run: |
         mkdir -p "$HOME/bin"
