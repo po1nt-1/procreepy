@@ -28,11 +28,26 @@ env:
   GOFLAGS: "-mod=readonly"
   CGO_ENABLED: "0"
 
+# The tag trigger is a glob ("v*") because on.push.tags cannot express the
+# semver digit pattern; every job re-checks the exact pattern (the same one
+# as the release tag rule) so a malformed tag fails fast instead of
+# consuming runners.
+_tag_guard: &tag_guard
+  name: verify tag format
+  if: github.ref_type == 'tag'
+  run: |
+    re='^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9._]+)?$'
+    if [[ ! "${GITHUB_REF_NAME}" =~ $re ]]; then
+      echo "'${GITHUB_REF_NAME}' does not match the release tag pattern"
+      exit 1
+    fi
+
 jobs:
   test:
     runs-on: ubuntu-latest
     container: golang:1.27.1
     steps:
+    - *tag_guard
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0
@@ -61,6 +76,7 @@ jobs:
   sast:
     runs-on: ubuntu-latest
     steps:
+    - *tag_guard
     - uses: actions/checkout@v4
     - uses: actions/setup-go@v5
       with:
@@ -89,6 +105,7 @@ jobs:
         - { goos: darwin, goarch: amd64 }
         - { goos: darwin, goarch: arm64 }
     steps:
+    - *tag_guard
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0
@@ -117,6 +134,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+    - *tag_guard
     - uses: actions/download-artifact@v4
       with:
         pattern: dist-*
@@ -147,6 +165,7 @@ jobs:
       GOOS: linux
       GOARCH: amd64
     steps:
+    - *tag_guard
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0
@@ -169,6 +188,7 @@ jobs:
     needs: repro
     runs-on: ubuntu-latest
     steps:
+    - *tag_guard
     # Single-name downloads land at the workspace root; a pattern with a
     # path nests each artifact into its own sub-directory.
     - uses: actions/download-artifact@v4
