@@ -152,8 +152,8 @@ repro:compare:
 # Decides from Conventional Commits whether a new version is due. No release
 # commit is created (assets: []), so nothing extra lands on main; the
 # semantic-release core itself creates the vX.Y.Z tag (tagFormat default) and
-# pushes it to origin with the runner's git credentials. That one tag is the
-# single input both hosts' goreleaser jobs publish from.
+# pushes it to origin. That one tag is the single input both hosts'
+# goreleaser jobs publish from.
 release:
   stage: release
   image: node:22-bookworm
@@ -168,6 +168,12 @@ release:
     GIT_COMMITTER_EMAIL: "13149478-po1nt-1@users.noreply.gitlab.com"
   script:
     - npm install --no-save --no-audit --no-fund semantic-release@25.0.9 @semantic-release/git@11.0.1 conventional-changelog-conventionalcommits@8.0.0
+    # Push the tag with the protected PAT instead of the job token:
+    # CI_JOB_TOKEN cannot create new refs by default, and a job-token push
+    # would not trigger the tag pipeline goreleaser depends on anyway.
+    # GITLAB_TOKEN is a Protected variable, so this job needs main to be a
+    # protected branch.
+    - git remote set-url origin "https://oauth2:${GITLAB_TOKEN}@$(git remote get-url origin | sed -E 's#^https://[^@]*@##; s#^https://##')"
     - npx --no-install semantic-release
 
 # Publishes the tag as a GitLab Release. GoReleaser resolves the target
