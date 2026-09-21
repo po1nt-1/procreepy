@@ -41,20 +41,15 @@ jobs:
       with:
         fetch-depth: 0
     - uses: ./.github/actions/tag-guard
-    - name: vet
-      run: go vet ./...
-    # e2e self-aggregates cover.e2e.out; running it under -coverprofile
-    # would add a colliding second writer.
-    - name: full suite
-      run: go test ./... -count=1
-    # e2e excluded: its data already arrives via cover.e2e.out. The
-    # ./internal/... scope keeps cmd/ measured exactly once, via the e2e binary.
-    - name: package coverage
-      run: go test $(go list ./internal/... | grep -v internal/e2e) -count=1 -coverprofile=xpkg.out -coverpkg=./internal/...
-    - name: merge and render Cobertura
-      run: |
-        go run ./tools/cov2cobertura -o coverage.xml -merged merged.out -strip procreepy/ xpkg.out cover.e2e.out
-        go tool cover -func merged.out | grep '^total'
+    # Definition of done in one step: gofmt, compile, vet, full suite.
+    # The suite's e2e run self-aggregates cover.e2e.out; e2e must never
+    # run under -coverprofile (the two writers would collide).
+    - name: definition of done
+      run: make check
+    # make coverage: e2e uninstrumented, non-e2e packages profiled, the
+    # two profiles merged into the Cobertura report + merged text profile.
+    - name: coverage
+      run: make coverage
     - uses: actions/upload-artifact@v4
       with:
         name: coverage
@@ -104,17 +99,8 @@ jobs:
         GOOS: ${{ matrix.goos }}
         GOARCH: ${{ matrix.goarch }}
       run: |
-        EXE=""
-        if [ "$GOOS" = "windows" ]; then EXE=".exe"; fi
         if [ "${GITHUB_REF_TYPE}" = "tag" ]; then VERSION="$GITHUB_REF_NAME"; else VERSION="dev-${GITHUB_SHA::7}"; fi
-        BIN="procreepy-$VERSION-$GOOS-$GOARCH$EXE"
-        go build -trimpath -buildvcs=false -ldflags="-s -w" -o "$BIN" ./cmd/procreepy
-        mkdir -p dist
-        mv "$BIN" dist/
-        # Normalized tar+gzip: the tarball must stay bit-identical across runs.
-        tar --sort=name --owner=0 --group=0 --numeric-owner --mtime=@0 -cf - -C dist "$BIN" | gzip -n > "dist/$BIN.tar.gz"
-        rm "dist/$BIN"
-        sha256sum "dist/$BIN.tar.gz"
+        make release GOOS="$GOOS" GOARCH="$GOARCH" VERSION="$VERSION"
     - uses: actions/upload-artifact@v4
       with:
         name: dist-${{ matrix.goos }}-${{ matrix.goarch }}
@@ -160,14 +146,10 @@ jobs:
     - uses: ./.github/actions/tag-guard
     - name: build twice across a cold cache
       run: |
-        go build -trimpath -buildvcs=false -ldflags="-s -w" -o /tmp/pass1 ./cmd/procreepy
-        # Wipe the cache between passes: the output must not depend on it.
-        rm -rf "$(go env GOCACHE)"
-        go build -trimpath -buildvcs=false -ldflags="-s -w" -o /tmp/pass2 ./cmd/procreepy
-        H1="$(sha256sum /tmp/pass1 | cut -d' ' -f1)"
-        H2="$(sha256sum /tmp/pass2 | cut -d' ' -f1)"
-        test "$H1" = "$H2"
-        echo "$H1" > "repro-${{ matrix.flavor }}.sha256"
+        # The alpine image ships no make. Installing it does not affect
+        # the proof (pure Go, no cgo, -trimpath).
+        if [ "${{ matrix.flavor }}" = "musl" ]; then apk add --no-cache make; fi
+        make repro FLAVOR="${{ matrix.flavor }}"
     - uses: actions/upload-artifact@v4
       with:
         name: repro-${{ matrix.flavor }}.sha256

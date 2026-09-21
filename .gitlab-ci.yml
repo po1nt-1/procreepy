@@ -35,19 +35,13 @@ test:
   stage: test
   image: $GO_IMAGE
   script:
-    - go vet ./...
-    # Full suite without instrumentation: the e2e package builds its own
-    # instrumented binary and self-aggregates the repo-level cover.e2e.out,
-    # so it must never run under -coverprofile (the two writers collide).
-    - go test ./... -count=1
-    # Statement-coverage profile over all packages except e2e (whose data
-    # already arrives via cover.e2e.out). Scoped to ./internal/... so cmd/
-    # is counted only once, from the e2e binary.
-    - go test $(go list ./internal/... | grep -v internal/e2e) -count=1 -coverprofile=xpkg.out -coverpkg=./internal/...
-    # Merge both profiles (union) and render a Cobertura report for MR
-    # diff annotations; also emit the merged text profile for the total.
-    - go run ./tools/cov2cobertura -o coverage.xml -merged merged.out -strip procreepy/ xpkg.out cover.e2e.out
-    - go tool cover -func merged.out | grep '^total'
+    # Definition of done in one step: gofmt, compile, vet, full suite.
+    # The suite's e2e run self-aggregates cover.e2e.out; e2e must never
+    # run under -coverprofile (the two writers would collide).
+    - make check
+    # Profile the non-e2e packages, merge with cover.e2e.out, and render
+    # the Cobertura report the coverage: regex below reads the total from.
+    - make coverage
   coverage: '/total:\s+\(statements\)\s+\d+.\d+%/'
   artifacts:
     reports:
@@ -70,18 +64,7 @@ build:
     - GOOS: darwin
       GOARCH: [amd64, arm64]
   script:
-    - EXE=""
-    - if [ "$GOOS" = "windows" ]; then EXE=".exe"; fi
-    - VERSION="${CI_COMMIT_TAG:-dev-${CI_COMMIT_SHORT_SHA}}"
-    - BIN="procreepy-$VERSION-$GOOS-$GOARCH$EXE"
-    - go build -trimpath -buildvcs=false -ldflags="-s -w" -o "$BIN" ./cmd/procreepy
-    - mkdir -p dist
-    - mv "$BIN" dist/
-    # Normalized tar+gzip (fixed mtime/owner, no gzip timestamp) so the
-    # tarball itself is bit-identical between runs of the same source.
-    - tar --sort=name --owner=0 --group=0 --numeric-owner --mtime=@0 -cf - -C dist "$BIN" | gzip -n > "dist/$BIN.tar.gz"
-    - rm "dist/$BIN"
-    - "sha256sum \"dist/$BIN.tar.gz\""
+    - make release GOOS=$GOOS GOARCH=$GOARCH VERSION="${CI_COMMIT_TAG:-dev-${CI_COMMIT_SHORT_SHA}}"
   artifacts:
     paths:
     - dist/
@@ -110,20 +93,14 @@ dist:
   variables:
     GOOS: linux
     GOARCH: amd64
-  script:
-    - go build -trimpath -buildvcs=false -ldflags="-s -w" -o /tmp/pass1 ./cmd/procreepy
-    - rm -rf "$(go env GOCACHE)"
-    - go build -trimpath -buildvcs=false -ldflags="-s -w" -o /tmp/pass2 ./cmd/procreepy
-    - H1="$(sha256sum /tmp/pass1 | cut -d' ' -f1)"
-    - H2="$(sha256sum /tmp/pass2 | cut -d' ' -f1)"
-    - test "$H1" = "$H2"
-    - echo "$H1" > "repro-$FLAVOR.sha256"
 
 repro:glibc:
   extends: .repro-build
   image: $GO_IMAGE
   variables:
     FLAVOR: glibc
+  script:
+    - make repro FLAVOR=glibc
   artifacts:
     paths:
     - repro-glibc.sha256
@@ -133,6 +110,11 @@ repro:musl:
   image: golang:1.27.1-alpine
   variables:
     FLAVOR: musl
+  script:
+    # The alpine image ships no make. Installing it does not affect the
+    # proof: pure Go, no cgo, -trimpath.
+    - apk add --no-cache make
+    - make repro FLAVOR=musl
   artifacts:
     paths:
     - repro-musl.sha256

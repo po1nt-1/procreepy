@@ -8,35 +8,36 @@ by stream copy. Pure Go, zero dependencies, no ffmpeg.
 
 ```sh
 export PATH=$PATH:/usr/local/go/bin   # Go 1.27.1 lives in /usr/local/go
-export CGO_ENABLED=0
+export CGO_ENABLED=0                  # baseline for raw go commands; make sets it itself
 ```
+
+All commands are make targets; the Makefile forces the same hermetic
+environment CI uses (`GOTOOLCHAIN=local`, `GOPROXY=off`, `GOFLAGS=-mod=readonly`,
+`CGO_ENABLED=0`), so `make` works from a bare shell. The raw `go` equivalents
+stay valid.
 
 | Task | Command |
 |---|---|
-| Format check | `gofmt -l .` (must print nothing) |
-| Build | `go build ./...` |
-| Vet | `go vet ./...` |
-| Full test suite | `go test ./... -count=1` |
-| Binary | `go build -o procreepy ./cmd/procreepy` |
-| Cross-compile | `GOOS=linux\|windows\|darwin GOARCH=amd64\|arm64\|arm( linux only, needs GOARM=7) go build ./...` |
-| Release flags | `-trimpath -buildvcs=false -ldflags="-s -w"` |
+| Definition of done | `make check` (fmt check, build, vet, full suite) |
+| Format check | `make fmt-check` (fix with `make fmt`) |
+| Build | `make build` |
+| Vet | `make vet` |
+| Full test suite | `make test` |
+| Binary | `make bin` |
+| Cross-compile | `make release GOOS=linux\|windows\|darwin GOARCH=amd64\|arm64\|arm` (linux arm: default GOARM=7); `make cross` for the whole CI matrix |
+| Release flags | baked into `make release` / `make repro`: `-trimpath -buildvcs=false -ldflags="-s -w"` |
+| Reproducibility | `make repro [FLAVOR=...]` -> `repro-<FLAVOR>.sha256` |
+| Clean | `make clean` |
 
 Definition of done (run all, all green, before reporting completion):
-`gofmt -l .` clean, `go build ./...`, `go vet ./...`, `go test ./... -count=1`,
-plus cross-builds for the CI matrix.
+`make check`, plus `make cross` for the CI matrix.
 
-Coverage (mirrors CI; the two writers must not collide):
-
-```sh
-# 1) e2e self-aggregates cover.e2e.out; it must NEVER run under -coverprofile.
-go test ./internal/e2e/ -count=1
-# 2) unit coverage over everything else:
-go test $(go list ./internal/... | grep -v internal/e2e) -count=1 \
-  -coverprofile=xpkg.out -coverpkg=./internal/...
-# 3) merge -> Cobertura:
-go run ./tools/cov2cobertura -o coverage.xml -merged merged.out -strip procreepy/ xpkg.out cover.e2e.out
-go tool cover -func merged.out | grep '^total'
-```
+Coverage (mirrors CI; the two writers must not collide): `make coverage`.
+e2e self-aggregates `cover.e2e.out` and must NEVER run under
+`-coverprofile`, so the target re-runs e2e uninstrumented, profiles
+`./internal/...` minus e2e into `xpkg.out` (scoped so cmd/ is counted
+exactly once, from the e2e binary), then merges both profiles into
+`coverage.xml` (Cobertura) + `merged.out` and prints the total.
 
 ## Environment constraints
 
@@ -59,6 +60,7 @@ go tool cover -func merged.out | grep '^total'
 | `internal/testkit` | builds synthetic MP4 segments and `.procreate` ZIPs for tests — no binary fixtures are committed |
 | `internal/e2e` | golden-output suite: builds the real (instrumented) binary in `TestMain` and compares exit code + stdout + stderr byte-for-byte |
 | `tools/cov2cobertura` | merges coverage profiles into a Cobertura report (GitLab MR diff annotations) |
+| `Makefile` | build entry point: hermetic env + the canonical commands CI runs |
 
 ## Non-negotiable invariants
 
@@ -116,13 +118,14 @@ do not hand-roll expected strings:
 - Sample outputs in docs must be **authentic**: capture them from a real
   `procreepy` binary run, never invent them.
 
-## CI (GitLab, `.gitlab-ci.yml`)
+## CI (GitLab, `.gitlab-ci.yml`; GitHub mirror in `.github/workflows/`)
 
-Stages: test (vet + full suite + merged coverage + Cobertura artifact),
-build (matrix: linux amd64/arm64/arm, windows amd64/arm64, darwin amd64/arm64,
-normalized reproducible tarballs + SHA256SUMS), verify (`repro:*` bit-for-bit
-proof). Do not weaken `GOTOOLCHAIN=local`, `GOPROXY=off`, `CGO_ENABLED=0`,
-or the build flags.
+Stages: test (`make check` + `make coverage` -> Cobertura artifact),
+build (`make release` x matrix: linux amd64/arm64/arm, windows amd64/arm64,
+darwin amd64/arm64; normalized reproducible tarballs + SHA256SUMS), verify
+(`make repro` on glibc vs musl, bit-for-bit proof). Do not weaken
+`GOTOOLCHAIN=local`, `GOPROXY=off`, `CGO_ENABLED=0`, or the build flags —
+the Makefile enforces the same flags locally.
 
 ## Workflow
 
