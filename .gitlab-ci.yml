@@ -180,6 +180,12 @@ goreleaser:
   image: $GO_IMAGE
   rules:
     - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+(-[\w.]+)?$/'
+  # Wait for test as a gate only: inheriting any job's artifacts would
+  # drop untracked files into the checkout and fail goreleaser's
+  # dirty-state check.
+  needs:
+    - job: test
+      artifacts: false
   script:
     - curl -LsSfL https://github.com/goreleaser/goreleaser/releases/download/v2.18.2/goreleaser_Linux_x86_64.tar.gz -o /tmp/goreleaser.tar.gz
     - tar -C /usr/local/bin -xzf /tmp/goreleaser.tar.gz goreleaser
