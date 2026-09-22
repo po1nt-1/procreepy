@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -38,8 +39,10 @@ var defaultPPS = []byte{0x27, 0x05, 0xeb}
 // DefaultPPS is the PPS used by default in synthetic segments.
 func DefaultPPS() []byte { return defaultPPS }
 
-// baselineSPS builds a minimal valid H.264 baseline SPS (320x240).
-func baselineSPS() []byte {
+// BaselineSPSWithNRef returns the default baseline SPS with
+// max_num_ref_frames = nref. Mirrors Procreate, which writes the same SPS
+// with a drifting max_num_ref_frames into the segments of one recording.
+func BaselineSPSWithNRef(nref uint32) []byte {
 	bits := ""
 	bits += "0" + "11" + "00111" // forbidden, nal_ref_idc=3, nal_unit_type=7 (SPS)
 	bits += "01000010"           // profile_idc = 66 (baseline)
@@ -49,7 +52,7 @@ func baselineSPS() []byte {
 	bits += "1"                  // log2_max_frame_num_minus4 ue(0)
 	bits += "1"                  // pic_order_cnt_type ue(0)
 	bits += "1"                  // log2_max_pic_order_cnt_lsb_minus4 ue(0)
-	bits += "011"                // max_num_ref_frames ue(1)
+	bits += encUE(nref)          // max_num_ref_frames
 	bits += "0"                  // gaps_in_frame_num_value_allowed
 	bits += "00000101011"        // pic_width_in_mbs_minus1 ue(19) => 20 mbs = 320px
 	bits += "000010110"          // pic_height_in_map_units_minus1 ue(14) => 15 = 240px
@@ -58,6 +61,19 @@ func baselineSPS() []byte {
 	bits += "0"                  // frame_cropping
 	bits += "0"                  // vui_parameters_present
 	return bitsToBytes(bits)
+}
+
+// baselineSPS builds a minimal valid H.264 baseline SPS (320x240).
+func baselineSPS() []byte { return BaselineSPSWithNRef(2) }
+
+// encUE encodes n as an unsigned Exp-Golomb code (ITU-T H.264 9.1).
+func encUE(n uint32) string {
+	v := n + 1
+	l := 1
+	for x := v >> 1; x != 0; x >>= 1 {
+		l++
+	}
+	return strings.Repeat("0", l-1) + fmt.Sprintf("%b", v)
 }
 
 // avcC builds an avcC config box containing the given SPS and PPS.

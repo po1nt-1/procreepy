@@ -8,6 +8,24 @@ import (
 // FuzzParseMP4 drives the parser with arbitrary bytes. The contract:
 // malformed input yields an error (never a panic), and a successfully parsed
 // movie keeps its structural invariants intact.
+// FuzzAvcCMatchesExceptNRef drives the relaxed avcC equivalence check with
+// arbitrary payloads. Contract: no panic, identical payloads always match,
+// and matching is symmetric.
+func FuzzAvcCMatchesExceptNRef(f *testing.F) {
+	f.Add(avcCPay(100, realSpsNRef2, realPPS), avcCPay(100, realSpsNRef4, realPPS))
+	f.Add(avcCPay(66, baseSPSNRef(2), []byte{0x27, 0x05, 0xeb}),
+		avcCPay(66, baseSPSNRef(2), []byte{0x27, 0x05, 0xeb}))
+	f.Add([]byte{1, 2, 3}, avcCPay(100, realSpsNRef4, realPPS))
+	f.Fuzz(func(t *testing.T, a, b []byte) {
+		if bytes.Equal(a, b) && !avcCMatchesExceptNRef(a, b) {
+			t.Fatal("identical payloads are not equivalent")
+		}
+		if avcCMatchesExceptNRef(a, b) && !avcCMatchesExceptNRef(b, a) {
+			t.Fatal("equivalence is not symmetric")
+		}
+	})
+}
+
 func FuzzParseMP4(f *testing.F) {
 	good := buildSegFile(320, 240, []uint32{10, 20}, []uint32{50})
 	seeds := [][]byte{

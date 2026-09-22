@@ -10,7 +10,9 @@ import (
 
 // trackSig is the set of properties that must match across every segment for
 // a stream-copy concat. It is stricter than ffprobe's pix_fmt comparison: the
-// codec configuration bytes (avcC/hvcC/esds) must be byte-identical.
+// codec configuration bytes (avcC/hvcC/esds) must be identical in every
+// decode-relevant aspect; avcC SPSes may still differ in
+// max_num_ref_frames (see configDataCompat).
 type trackSig struct {
 	kind    string // "video" or "audio"
 	handler string
@@ -80,7 +82,7 @@ func diffTracks(a, b trackSig) []Field {
 	add(a.rate != b.rate, FieldSampleRate)
 	add(a.chans != b.chans, FieldChannels)
 	add(a.ts != b.ts, FieldTimescale)
-	if a.config != b.config || !bytes.Equal(a.confDat, b.confDat) {
+	if !configDataCompat(a.config, a.confDat, b.config, b.confDat) {
 		name := FieldConfig
 		if a.config == b.config && a.config != "" {
 			name = Field(a.config)
@@ -161,7 +163,10 @@ func describeSigs(sigs []trackSig) string {
 
 // MergedTrack is one track of the concatenated result.
 type MergedTrack struct {
-	ref      *TrackState
+	ref *TrackState
+	// stsd overrides ref.StsdRaw when the merged track carries the codec
+	// configuration of a later segment (the max-nref avcC variant).
+	stsd     []byte
 	sizes    []uint32
 	stts     []SttsEntry
 	stsc     []StscEntry
@@ -251,6 +256,11 @@ func Merge(movies []*Movie) (*Merged, error) {
 			}
 		}
 		mt := &MergedTrack{ref: ref, hasSync: hasSync, hasCtts: ref.HasCtts, signedCT: ref.CttsSigned}
+		var ts []*TrackState
+		for _, m := range movies {
+			ts = append(ts, m.Tracks[ti])
+		}
+		mt.stsd = pickStsd(ts)
 		for si, m := range movies {
 			tr := m.Tracks[ti]
 			baseStart := m.Mdat[0].Start
@@ -334,7 +344,8 @@ func (m *Movie) HasVideo() bool { return hasVideoTrack(m) }
 func (m *Movie) StreamsSummary() string { return describeSigs(movieSig(m)) }
 
 // SameStreams reports whether a and b carry the same streams with
-// byte-identical configurations (stream-copy compatibility, per track).
+// stream-copy-compatible configurations (per track; avcC SPSes may still
+// differ in max_num_ref_frames, see configDataCompat).
 func SameStreams(a, b *Movie) bool { return sigsEqual(movieSig(a), movieSig(b)) }
 
 // SegmentCount is the number of source segments.
@@ -365,8 +376,12 @@ func (m *Merged) moovBytes(useCo64 bool, base []int64) []byte {
 		ref := mt.ref
 		trkKids := make([][]byte, 0, 2)
 		trkKids = append(trkKids, EncTKHD(m.tkID[ti], m.tkDur[ti], ref.Width, ref.Height, ref.Volume, ref.Matrix))
+		stsd := ref.StsdRaw
+		if mt.stsd != nil {
+			stsd = mt.stsd
+		}
 		stblKids := make([][]byte, 0, 7)
-		stblKids = append(stblKids, ref.StsdRaw)
+		stblKids = append(stblKids, stsd)
 		stblKids = append(stblKids, EncSTTS(mt.stts))
 		stblKids = append(stblKids, EncSTSC(mt.stsc))
 		stblKids = append(stblKids, EncSTSZ(mt.sizes))

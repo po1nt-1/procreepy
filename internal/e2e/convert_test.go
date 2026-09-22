@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"procreepy/internal/mp4"
 	"procreepy/internal/testkit"
 )
 
@@ -24,6 +25,40 @@ func TestConvertFile(t *testing.T) {
 	check(t, run(t, dir, nil, "in.procreate", "out.mp4"), 0, "", wantErr)
 	eqBytes(t, "out.mp4", readAll(t, filepath.Join(dir, "out.mp4")),
 		expectedMP4(t, segN(1), segN(2), segN(3)))
+	assertNoPartial(t, dir)
+}
+
+// TestConvertNRefDrift covers Procreate's real-world quirk: quiet segments
+// carry an SPS with max_num_ref_frames = 2 and active segments one with 4,
+// so the avcC boxes differ although the streams are stream-copy compatible.
+func TestConvertNRefDrift(t *testing.T) {
+	dir := t.TempDir()
+	segA := testkit.Segment(320, 240, []uint32{1000}, []uint32{700},
+		testkit.WithCodecConfig(testkit.BaselineSPSWithNRef(2), testkit.DefaultPPS()))
+	segB := testkit.Segment(320, 240, []uint32{1100}, []uint32{800},
+		testkit.WithCodecConfig(testkit.BaselineSPSWithNRef(4), testkit.DefaultPPS()))
+	mA, err := mp4.Parse(bytes.NewReader(segA), int64(len(segA)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mB, err := mp4.Parse(bytes.NewReader(segB), int64(len(segB)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(mA.Tracks[0].ConfigData, mB.Tracks[0].ConfigData) {
+		t.Fatal("test fixture bug: the avcC payloads should differ")
+	}
+	entries := map[string][]byte{
+		"Document/document.data":       []byte("fake-document-data"),
+		"video/segments/":              {},
+		"video/segments/segment-1.mp4": segA,
+		"video/segments/segment-2.mp4": segB,
+	}
+	writeArchive(t, dir, "in.procreate", entries)
+	wantErr := chattyBlock("in.procreate", 2, "out.mp4", 2.0)
+	check(t, run(t, dir, nil, "in.procreate", "out.mp4"), 0, "", wantErr)
+	eqBytes(t, "out.mp4", readAll(t, filepath.Join(dir, "out.mp4")),
+		expectedMP4(t, segA, segB))
 	assertNoPartial(t, dir)
 }
 

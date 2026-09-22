@@ -31,6 +31,17 @@ func (g *expGolomb) u(n int) (uint32, error) {
 	return v, nil
 }
 
+func (g *expGolomb) se() (int32, error) {
+	v, err := g.ue()
+	if err != nil {
+		return 0, err
+	}
+	if v&1 == 0 {
+		return -int32(v/2) - 1, nil
+	}
+	return int32(v / 2), nil
+}
+
 func (g *expGolomb) ue() (uint32, error) {
 	zeros := 0
 	for {
@@ -187,6 +198,14 @@ func parseAVCConfig(pay []byte) (profile, level uint8, ok bool) {
 	return profile, level, true
 }
 
+// spsNeedsChromaFormat reports whether the profile's SPS carries the
+// chroma_format_idc field (7.3.2.1).
+func spsNeedsChromaFormat(profile uint8) bool {
+	return profile == 100 || profile == 110 || profile == 122 || profile == 244 ||
+		profile == 44 || profile == 83 || profile == 86 || profile == 118 ||
+		profile == 128 || profile == 138 || profile == 139 || profile == 134 || profile == 135
+}
+
 // h264SPS extracts profile/level/chroma format from an Annex-B SPS.
 func h264SPS(b []byte) (profile, level uint8, chroma int, ok bool) {
 	// strip the start code
@@ -211,10 +230,7 @@ func h264SPS(b []byte) (profile, level uint8, chroma int, ok bool) {
 	if _, err := g.ue(); err != nil {
 		return 0, 0, -1, false
 	}
-	needChroma := profile == 100 || profile == 110 || profile == 122 || profile == 244 ||
-		profile == 44 || profile == 83 || profile == 86 || profile == 118 ||
-		profile == 128 || profile == 138 || profile == 139 || profile == 134 || profile == 135
-	if !needChroma {
+	if !spsNeedsChromaFormat(profile) {
 		return profile, level, 1, true // baseline/main: yuv420p or gray; assume 4:2:0
 	}
 	v, err := g.ue()
