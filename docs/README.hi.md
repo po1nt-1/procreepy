@@ -1,38 +1,38 @@
 # procreepy
 
-हर OS के लिए एक छोटी Unix उपयोगिता (Linux, Windows, macOS): यह `.procreate` फ़ाइल से तैयार
-आर्काइव टाइमलाप्स निकालती है और उसके खंडों को एक ही MP4 में जोड़ देती है।
-कोई री-एन्कोडिंग नहीं (स्ट्रीम कॉपी), कोई रेंडरिंग नहीं।
+एक छोटा क्रॉस-प्लैटफ़ॉर्म यूटिलिटी (Linux, Windows, macOS): यह `.procreate`
+फ़ाइल से पहले से तैयार archive timelapse निकालती है और उसके segments को एक
+MP4 में जोड़ देती है। कुछ भी re-encode नहीं किया जाता (stream copy), और कुछ
+भी render नहीं किया जाता।
 
-`.procreate` एक ZIP है। अगर टाइमलाप्स रिकॉर्डिंग चालू थी, तो अंदर ये
-होते हैं
+`.procreate` एक ZIP archive है। अगर timelapse recording चालू थी, तो इसमें
+ये फ़ाइलें होती हैं
 
 ```text
 video/segments/segment-1.mp4
 video/segments/segment-2.mp4
 ...
 ```
-
-यूटिलिटी बिल्कुल इन ही फ़ाइलों को लेती है: इन्हें **संख्यात्मक** रूप से
-sort करती है (`segment-9`, `segment-10` से पहले), हर खंड की MP4 संरचना
-parse करती है, और इन्हें एक moov-first MP4 में पुनर्निर्मित करती है —
-फ्रेम जैसे-तैसे कॉपी किए जाते हैं। `Document.archive`, लेयर्स या
-रस्टर चंक (`*.lz4`) उसकी कभी नहीं खुलतीं।
+यूटिलिटी ठीक इन्हीं फ़ाइलों को लेती है: इन्हें **संख्यात्मक रूप से** sort करती
+है (`segment-9`, `segment-10` से पहले), हर segment की MP4 संरचना parse करती है,
+और frames को जस का तस कॉपी करके एक moov-first MP4 बनाती है। यह कभी भी
+`Document.archive`, layers या raster chunks (`*.lz4`) नहीं खोलती।
 
 ## आवश्यकताएँ
 
-कोई बाहरी निर्भरता नहीं: न `ffmpeg`, न `ffprobe`। बिल्ड के लिए
-केवल Go चाहिए (version `go.mod` में है)।
+कोई बाहरी dependency नहीं है: `ffmpeg` या `ffprobe` की ज़रूरत नहीं। Build के लिए केवल Go (version `go.mod` में है) और `make` चाहिए (यह सभी supported platforms पर उपलब्ध है; minimal systems पर package manager से आसानी से install किया जा सकता है)।
+Makefile build का canonical entry point है: यह वही hermetic environment तय करता है जिसे CI इस्तेमाल करता है (offline module mode, local toolchain, no cgo) और Go toolchain को अपने-आप खोजता है।
 
 ```bash
-go build -o procreepy ./cmd/procreepy    # or: make build
+make build      # सब कुछ compile करके runnable ./procreepy बनाना
+make check      # gofmt + build + vet + पूरी test suite
 ```
 
-### दुरसरी OS केलिए बिल्ड करन
+`make build` binary में `dev-<commit>` दर्ज करता है, इसलिए `procreepy --version` बताता है कि binary किस commit से बनी है (release tarballs में इसकी जगह tag होता है)। `make` के बिना raw equivalent है `go build ./... && go build -o procreepy ./cmd/procreepy` (Git checkout के अंदर build करने पर binary `dev` या `dev-<commit>` रिपोर्ट करती है)।
 
-ये प्रोजेक्ट शुद्ध Go हαι और सभाइ समर्थित target केलिए साफ-साफ़
-cross-compile होतै है। किसी भी platform से, इनमें से कोई भी command
-चलेगी:
+### दूसरे operating systems के लिए build करना
+
+Project pure Go है और सभी supported targets के लिए साफ़ तरीके से cross-compile होता है। किसी भी platform से:
 
 | Target | Command |
 |---|---|
@@ -43,16 +43,11 @@ cross-compile होतै है। किसी भी platform से, इन
 | Windows ARM 64-bit | `make release GOOS=windows GOARCH=arm64` |
 | macOS Intel | `make release GOOS=darwin GOARCH=amd64` |
 | macOS Apple Silicon (M1–M5) | `make release GOOS=darwin GOARCH=arm64` |
+हर target एक normalized `dist/procreepy-<version>-<os>-<arch>.tar.gz` बनाता है और उसका SHA-256 दिखाता है; `make cross` पूरी matrix को एक साथ build करता है, और `make repro` साबित करता है कि build bit-for-bit reproducible है। एक target के लिए raw equivalent है `GOOS=… GOARCH=… go build -o procreepy[.exe] ./cmd/procreepy`।
+सभी builds static हैं (no cgo): Linux binary किसी भी distribution पर चलेगी, glibc का version कुछ भी हो। CI pipelines (GitLab और GitHub) हर commit पर इन्हीं targets को build करती हैं; `dist` job tarballs और `SHA256SUMS` manifest publish करती है, और `repro:*` jobs binaries की bit-for-bit reproducibility साबित करती हैं।
 
-सभी builds static हैं (cgo नहीं): Linux binary किसी भी distribution पर
-चलती है, चाहे उसकी glibc की version कुछ भी हो। GitLab CI pipeline हर
-commit पर बिल्कुल ये target बिल्ड करती है; `dist` job tarball और
-`SHA256SUMS` manifest publish करता है, और `repro:*` jobs साबित करते हैं
-कि binaries bit-by-bit reproduce होती हैं।
-
-- Linux/macOS: installation step नहीं है, binary सीधे चलाइए।
-- Windows: binary sign नहीं है, इसलिये SmartScreen "आपके PC की सुरक्षा हो
-  गई" दिखा सकता है — **और जानकारी → फिर भी चलाइए** चुनिए।
+- Linux/macOS: किसी installation step की ज़रूरत नहीं; binary सीधे चलाएँ।
+- Windows: binary unsigned है, इसलिए SmartScreen “Protected your PC” दिखा सकता है — **More info → Run anyway** चुनें।
 
 ## उपयोग
 
@@ -66,16 +61,15 @@ procreepy --list artwork.procreate
 procreepy --verify artwork.procreate
 procreepy --split artwork.procreate artwork.mp4
 ```
+`INPUT`/`OUTPUT` की चारों combinations supported हैं:
+`FILE OUTPUT`, `FILE -`, `- OUTPUT`, `- -`। अगर `OUTPUT` नहीं दिया गया है, तो
+output stdout है। अगर `OUTPUT` पहले से मौजूद directory है, तो video वहाँ मूल
+नाम से रखा जाता है (`procreepy art.procreate videos/` → `videos/art.mp4`)।
 
-चारों `INPUT`/`OUTPUT` संयोजन सपोर्टेड हैं: `FILE OUTPUT`, `FILE -`,
-`- OUTPUT`, `- -`। अगर `OUTPUT` छोड़ा जाए, तो वह stdout है। अगर `OUTPUT`
-एक मौजूदा फ़ोल्डर है, तो वीडियो मूल नाम पर उसमें जाता है
-(`procreepy art.procreate videos/` → `videos/art.mp4`)।
+### Batch mode: `.procreate` फ़ाइलों वाला folder → videos वाला folder
 
-### बैच मोड: `.procreate` वाला फ़ोल्डर → वीडियो वाला फ़ोल्डर
-
-"मेरे पास `input/` भरई `.procreate` से है, और वीडियो चाहिए `output/timelaps/`
-में" का सीनारियो:
+Scenario: `input/` में बहुत-सी `.procreate` फ़ाइलें हैं और videos को
+`output/timelaps/` में रखना है:
 
 ```bash
 procreepy input/
@@ -85,27 +79,24 @@ procreepy input/
 input/                           output/timelaps/
 ├── Portrait of a Cat.procreate →  ├── Portrait of a Cat.mp4
 ├── Landscape v2.procreate      →  ├── Landscape v2.mp4
-└── No Timelapse.procreate            └── (छोड़ा गया, चेतावनी के साथ)
+└── No Timelapse.procreate            └── (छोड़ दिया गया, warning के साथ)
 ```
-
-- **नाम**: `<मूल नाम बिना .procreate>.mp4`। स्पेस, सिरिलिक और विशेष वर्ण
-  जैसे-तैसे रहते हैं।
-- **आउटपुट फ़ोल्डर**: डिफ़ॉल्ट रूप से वर्तमान फ़ोल्डर से relatively
-  `output/timelaps/`, स्वयं बनता है। दूसरा दूसरे आर्ग्यूमेंट से दिया जा
-  सकता है: `procreepy input/ ~/Videos/procreate`।
-- **फिर चलाना सुरक्षित है**: मौजूदा वीडियो skip हो जाते हैं। सब कुछ दोबारा
-  बनाने के लिए: `--force` (`-f`)।
-- **`-r`** सबफ़ोल्डरों में भी जाता है; सबफ़ोल्डर संरचना रिज़ल्ट में mirror
-  होती है (`input/2025/Cat.procreate` → `output/timelaps/2025/Cat.mp4`),
-  इसलिए अलग-अलग फ़ोल्डरों में समान नाम टकराते नहीं हैं।
-- **एक बुरी फ़ाइल बाकियों को रोकती नहीं है।** बिना टाइमलाप्स वाली फ़ाइल
-  (रिकॉर्डिंग बंद थी) चेतावनी है, ग़लती नहीं। टूटी फ़ाइल ग़लती है: वह
-  अंतिम सारांश में आएगी, और exit code `1` होगा।
-- छिपी फ़ाइलें (`._Foo.procreate`, जिन्हें macOS कॉपी करते समय पीछे छोड़ता
-  है) ignore हो जाती हैं।
-- मूल फ़ाइलें कभी नहीं बदलतीं।
-
-उदाहरण आउटपुट (सब stderr पर जाता है):
+- **नाम**: `<मूल नाम बिना .procreate>.mp4`। spaces, Cyrillic और special
+  characters जस के तस रहते हैं।
+- **Output folder**: डिफ़ॉल्ट रूप से current directory के सापेक्ष
+  `output/timelaps/`, जो अपने-आप बनता है। दूसरा folder दूसरे argument से दिया
+  जा सकता है: `procreepy input/ ~/Videos/procreate`।
+- **दोबारा चलाना सुरक्षित है**: जो videos पहले से मौजूद हैं वे skip हो जाते हैं।
+  सब कुछ फिर से बनाने के लिए `--force` (`-f`) इस्तेमाल करें।
+- **`-r`** sub-folders में भी जाता है; परिणाम में उनका structure mirror होता है
+  (`input/2025/Cat.procreate` → `output/timelaps/2025/Cat.mp4`), इसलिए अलग
+  folders में एक जैसे नाम आपस में नहीं टकराते।
+- **एक खराब फ़ाइल बाकी फ़ाइलों को नहीं रोकती।** बिना timelapse वाली फ़ाइल
+  (recording बंद थी) warning है, error नहीं। Corrupt फ़ाइल error है: वह final
+  summary में आती है और exit code `1` हो जाता है।
+- Hidden files (`._Foo.procreate`, जिन्हें macOS copy करते समय छोड़ता है) ignore होती हैं।
+- Original files कभी बदली नहीं जातीं।
+Example output (सारा output stderr पर जाता है):
 
 ```text
 level=INFO msg="batch conversion started" files=4 input=input output=output/timelaps/
@@ -115,32 +106,31 @@ level=WARN msg="no timelapse video inside, skipped" input="input/No Timelapse.pr
 level=INFO msg=converted input="input/Portrait of a Cat.procreate" output="output/timelaps/Portrait of a Cat.mp4"
 level=INFO msg="batch completed" converted=2 existed=0 no_video=1 failed=1
 ```
+`--list` और `--verify` directory को भी input के रूप में लेते हैं और उसमें सभी
+files पर चलते हैं।
 
-`--list` और `--verify` भी फ़ोल्डर स्वीकार करती हैं और सभी फ़ाइलों पर
-घूमती हैं।
+### अलग करना: video + slim project (`--split`)
 
-### विभाजन: वीडियो + हल्का प्रोजेक्ट (`--split`)
-
-माकसद: टाइमलाप्स स्वयं चित्र से ज़्यादा जगह घेरते हैं — जैसे iPad पर बैकअप
-लेते समय इन्हें अलग रखना अच्छा लगता है। `--split` हर तैयार `MP4` के बगल
-में प्रोजेक्ट की हल्की कॉपी लिखती है, जिसमें `video/` का **कुछ भी नहीं**:
+उद्देश्य: timelapses खुद drawing से ज़्यादा जगह लेते हैं — उदाहरण के लिए,
+iPad पर backup करते समय इन्हें अलग रखना उपयोगी हो सकता है। `--split` हर तैयार
+`MP4` के पास project की एक slim copy लिखता है, जिसमें `video/` के नीचे कुछ भी
+नहीं होता:
 
 ```bash
 procreepy --split artwork.procreate artwork.mp4
 ```
 
 ```text
-artwork.procreate  →  artwork.mp4                    (टाइमलाप्स, lossless)
-                     →  artwork.procreepy.procreate  (वही प्रोजेक्ट, video/ के बिना)
+artwork.procreate  →  artwork.mp4                    (timelapse, lossless)
+                     →  artwork.procreepy.procreate  (वही project, video/ के बिना)
 ```
+Batch mode में भी यही होता है: हर `X.mp4` के पास `X.procreepy.procreate` आता है।
+Archive के बाकी सभी members (layers, `Info.plist`, previews) byte for byte
+कॉपी होते हैं: order, compression methods और timestamps सुरक्षित रहते हैं।
+मूल `.procreate` नहीं बदली जाती; slim copy को stdout पर नहीं लिखा जा सकता,
+इसलिए `--split` के लिए file `OUTPUT` चाहिए।
 
-बैच मोड में वही: हर `X.mp4` के बगल में `X.procreepy.procreate` दिखता है।
-आर्काइव के बाकी सभी members (लेयर्स, `Info.plist`, प्रीव्यू) बित-दर-बित
-ले जाते हैं: क्रम, कंप्रेशन विधियाँ और timestamps बरक़रार रहते हैं। मूल
-`.procreate` नहीं बदलता; हल्की कॉपी को stdout में नहीं लिखा जा सकता,
-इसलिए `--split` को फ़ाइल `OUTPUT` चाहिए।
-
-### निदान
+### Diagnostics
 
 ```bash
 procreepy --list artwork.procreate
@@ -159,119 +149,114 @@ segments: 12
 ```bash
 procreepy --verify artwork.procreate
 ```
-
-हर खंड को सीधे आर्काइव से parse करती है (ZIP के अंदर CRC जाँच सहित),
-लाइन-दर-लाइन रिपोर्ट दिखाती है, और जाँचती है कि खंड बिना री-एन्कोडिंग के
-जोड़े जा सकेंगे। **कोई आउटपुट वीडियो बनाया नहीं जाता।** `--list` सिर्फ
-ZIP का directory पढ़ती है।
+हर segment को archive से सीधे parse किया जाता है (ZIP के अंदर CRC check सहित),
+line-by-line report दिखाई जाती है, और जाँचा जाता है कि segments को बिना
+re-encoding जोड़ा जा सकता है। **कोई output video नहीं बनाया जाता।** `--list`
+सिर्फ ZIP directory पढ़ता है।
 
 ## विकल्प
 
-| विकल्प | काम |
+| Option | क्या करता है |
 |---|---|
-| `-r`, `--recursive` | डायरेक्टरी इनपुट: सबफ़ोल्डर भी घूमे |
-| `-f`, `--force` | डायरेक्टरी इनपुट: मौजूदा वीडियो पर लिखना |
-| `--strict` | अनुपस्थित segment numbers को error मानें (डिफ़ॉल्ट में warning) |
-| `--reencode` | पुराने स्क्रिप्टों के साथ संगतता के लिए स्वीकार किया जाता है; री-एन्कोडिंग नहीं, हमेशा stream copy |
-| `--split` | हर `MP4` के बगल में `X.procreepy.procreate` लिखे — `video/` के बिना प्रोजेक्ट |
-| `--tmpdir DIR` | segments कहाँ उतारे जाएँ |
-| `-q`, `--quiet` | सिर्फ warning/error दिखाएँ |
+| `-r`, `--recursive` | directory input: sub-folders को भी traverse करें |
+| `-f`, `--force` | directory input: पहले से मौजूद videos को overwrite करें |
+| `--strict` | missing segment numbers को error मानें (default: warning) |
+| `--reencode` | पुराने scripts के साथ compatibility के लिए स्वीकार किया जाता है; re-encoding नहीं होती, हमेशा stream copy |
+| `--split` | हर `MP4` के पास `X.procreepy.procreate` लिखें — `video/` के बिना project |
+| `--tmpdir DIR` | temporary files कहाँ रखें |
+| `-q`, `--quiet` | केवल warnings और errors दिखाएँ |
 
-## यह कैसे काम करती है
+## यह कैसे काम करता है
 
-1. `INPUT` फ़ाइल या stdin है। Stdin (और कोई भी non-seekable इनपुट) पहले
-   एक अस्थायी फ़ाइल में spool किया जाता है, क्योंकि ZIP को random access
-   चाहिए।
-2. ZIP validate होता है (केवल पठन), फिर `video/segments/segment-N.mp4`
-   entries ढूँधी जाती हैं।
-3. संख्यात्मक क्रम। Numbering में गैप — warning; बिना number के नाम
-   warning के साथ ignore होते हैं।
-4. हर खंड ZIP से सीधे parse होता है (पूरी extraction के बिना): MP4 boxes,
-   track आकार, codec पैरामीटर। पहली टूट पर — रुकना।
-5. संगतता जाँच (resolution, codec, SPS/PPS sets, ऑडियो)। वरना `-c copy`
-   चुपचाप कूड़ा दे देता — इसलिए असंगतता एक स्पष्ट message के साथ error है,
-   तैयार वीडियो में आश्चर्य नहीं।
-6. moov-first MP4 बँधा जाता है: `ftyp`, `moov` (सभी tracks, segments से
-   काटी हुई), फिर playback order में `mdat` के बाद `mdat`।
-7. अस्थायी फ़ाइल (अगर बनी हो) हमेशा हटाई जाती है — सफलता, त्रुटि, Ctrl+C
-   और SIGTERM — तीनों में।
+1. `INPUT` एक file या stdin है। Stdin (और कोई भी non-seekable input) पहले
+   temporary file में spool किया जाता है, क्योंकि ZIP को random access चाहिए।
+2. ZIP को validate किया जाता है (read-only), और
+   `video/segments/segment-N.mp4` entries खोजी जाती हैं।
+3. Numeric sort। Numbering में gaps warning हैं; बिना number वाले names warning
+   के साथ ignore किए जाते हैं।
+4. हर segment को ZIP से सीधे parse किया जाता है (पूरी extraction के बिना): MP4
+   boxes, track sizes और codec parameters। पहली corruption पर प्रक्रिया रुक जाती है।
+5. Compatibility check (resolution, codec, SPS/PPS sets, audio)। वरना `-c copy`
+   चुपचाप खराब data बना सकता है — इसलिए incompatibility स्पष्ट message के साथ
+   error है, finished video में छिपी हुई समस्या नहीं।
+6. moov-first MP4 assemble किया जाता है: `ftyp`, `moov` (सभी tracks, segments
+   से काटे गए), फिर playback order में `mdat` के बाद `mdat`।
+7. Temporary file (अगर बनी हो) हमेशा हटाई जाती है — success, error, Ctrl+C और
+   SIGTERM, सभी स्थितियों में।
 
-### फ़ाइल और stdout में लिखना
+### File और stdout में लिखना
 
-दोनों रास्तों पर वही moov-first MP4 बनता है: moov atom पहले लिखा जाता
-है, क्योंकि फ्रेम source segments से सीधे कॉपी होते हैं और metadata
-लिखने से पहले ही ज्ञात होता है। फ़ाइल के लिए यह "क्लासिक" MP4 है —
-players और editors दोनों के लिए उपयुक्त; वही ठीक-ठीक फ़ाइल pipe में भी
-जाती है — `> artwork.mp4` साफ़ `procreepy artwork.procreate artwork.mp4`
-जैसा ही निकलता है।
+दोनों रास्ते एक ही moov-first MP4 बनाते हैं: moov atom पहले लिखा जाता है,
+क्योंकि frames source segments से सीधे copy होते हैं और metadata लिखना शुरू
+करने से पहले ज्ञात होता है। File के लिए यह "classic" MP4 है, जो players और
+editors दोनों के लिए उपयुक्त है; pipe में भी ठीक वही file जाती है —
+`> artwork.mp4` का परिणाम explicit `procreepy artwork.procreate artwork.mp4`
+के समान है।
+  * **File output** atomic है: target के पास `.partial` file बनाई जाती है और
+    केवल सफलता के बाद rename होती है। असफल run कोई अधूरा file नहीं छोड़ता और
+    मौजूदा file को कभी खराब नहीं करता।
+  * stdout में कभी text नहीं मिलाया जाता। सभी log lines
+    (`level=INFO`/`WARN`/`ERROR`, प्रति line एक structured key=value record)
+    stderr पर जाती हैं। केवल `--list`/`--verify` report का अपवाद है, जिसमें
+    stdout ही result है। अगर stdout terminal है, तो utility उसमें binary MP4
+    लिखने से मना कर देती है।
 
-- **फ़ाइल** आउटपुट atomic है: target के बगल में `.partial`, सिर्फ सफलता
-  के बाद rename। असफल चाली अवशेष नहीं छोड़ती और मौजूदा फ़ाइल कभी ख़राब
-  नहीं करती।
-- stdout कभी text से नहीं पसता। सभी संरचित `level=INFO`/`WARN`/`ERROR`
-  लाइनें (हर event के लिए एक key=value लाइन) stderr पर जाती हैं।
-  अकेला अपवाद `--list`/`--verify` की रिपोर्ट है, जहाँ
-  stdout *ही* परिणाम है। अगर stdout टर्मिनल है, तो यूटिलिटी वहाँ binary
-  MP4 डालने से इनकार दे देती है।
+### Temporary files और Fedora
 
-### अस्थायी फ़ाइलें और Fedora
-
-Fedora पर `/tmp` RAM में tmpfs है। टाइमलाप्स के segments सैकड़ों
-मेगाबाइट के हो सकते हैं, और stdin से पढ़ते समय पूरी `.procreate` spool
-होती है। इसलिए temp directory इस तरह चुनी जाती है: `--tmpdir` →
-`$TMPDIR` → `/var/tmp` (डिस्क पर)। extraction से पहले खाली जगह की जाँच
-होती है; कम पड़ने पर काम के बीच "No space left" की बजाय एक स्पष्ट error
-सुझाव के साथ मिलता है।
+Fedora पर `/tmp` RAM में tmpfs होता है। Timelapse segments सैकड़ों megabytes
+tक हो सकते हैं, और stdin से पढ़ते समय पूरा `.procreate` spool किया जाता है।
+इसलिए temporary directory का क्रम है: `--tmpdir` → `$TMPDIR` → `/var/tmp`
+(disk पर) → system default। Spooling के दौरान disk भर जाने पर केवल "No space
+left" के बजाय एक स्पष्ट error और संकेत मिलता है (`--tmpdir` से किसी बड़ी disk-backed
+directory का उपयोग करें)।
 
 ## Exit codes
 
-| कोड | अर्थ |
+| Code | अर्थ |
 |---|---|
 | 0 | सफलता |
-| 1 | अप्रत्याशित त्रुटि; बैच मोड में — कम से कम एक फ़ाइल विफल |
-| 2 | ग़لط आर्ग्यूमेंट; आउटपुट इनपुट को overwrite कर देता; stdout टर्मिनल है |
-| 3 | इनपुट नहीं मिला, खाली है या ZIP नहीं है |
-| 4 | आर्काइव में `video/segments` नहीं (टाइमलाप्स रिकॉर्ड नहीं हुआ था) |
-| 5 | segment ख़राब; अस्पष्ट या अनुपस्थित numbering (`--strict`) |
-| 6 | रखा गया (व्यवहारिक: बाहरी निर्भरताएँ नहीं हैं) |
-| 7 | segments stream copy के लिए असंगत |
-| 8 | रखा गया (व्यवहारिक: बाहरी निर्भरताएँ नहीं हैं) |
-| 9 | परिणाम या अस्थायी फ़ाइलों की लेखन त्रुटि |
-| 130 | बीच में रूका (Ctrl+C / SIGTERM) |
+| 1 | अप्रत्याशित error; batch mode में — कम से कम एक file विफल |
+| 2 | गलत arguments; output input को overwrite करेगा; stdout terminal है |
+| 3 | input नहीं मिला, खाली है या ZIP नहीं है |
+| 4 | archive में `video/segments` नहीं है (timelapse रिकॉर्ड नहीं हुआ) |
+| 5 | corrupt segment; ambiguous या missing numbering (`--strict`) |
+| 6 | reserved (उपयोग नहीं होता: कोई external dependency नहीं) |
+| 7 | segments stream copy के लिए incompatible हैं |
+| 8 | reserved (उपयोग नहीं होता: कोई external dependency नहीं) |
+| 9 | result या temporary files लिखने में failure |
+| 130 | interrupted (Ctrl+C / SIGTERM) |
 
-## टेस्ट
+## Tests
 
 ```bash
-go test ./...
+make test          # or: go test ./...
 ```
+असली `.procreate` files की ज़रूरत नहीं: tests generated MP4 segments से ZIP
+बनाते हैं (देखें `internal/testkit`)। Checks structural हैं: resulting MP4 का
+analysis, box order, sample counts और `mdat` content। `-race` आवश्यक नहीं है,
+लेकिन C compiler installed होने पर चलता है।
+Covered: ordinary file, missing `video/segments`, single segment, out-of-order
+segments (`segment-9`/`segment-10`), stdin, stdout, names में spaces और special
+characters, corrupt और truncated ZIPs, corrupt और truncated MP4s, CRC damage,
+write errors (`/dev/full`), incompatible segments और पूरा batch mode।
 
-असली `.procreate` की ज़रूरत नहीं: टेस्ट generated MP4 segments से ZIP
-बनाते हैं (देखें `internal/testkit`)। जाँचें संरचनात्मक हैं: निकले MP4 का
-विश्लेषण, box क्रम, sample संख्याएँ, `mdat` सामग्री। `-race` ज़रूरी नहीं,
-पर C कम्पाइलर स्थापित होने पर चलता है।
+## Utility जानबूझकर क्या नहीं करती
 
-कवर: सामान्य फ़ाइल, `video/segments` की अनुपस्थिति, एक segment, गड़बड़
-क्रम के segments (`segment-9`/`segment-10`), stdin, stdout, नामों में
-स्पेस और विशेष वर्ण, ख़राब और कटे हुए ZIP, ख़राब और कटे हुए MP4, CRC क्षति,
-लेखन त्रुटियाँ (`/dev/full`), असंगत segments, और पूरा बैच मोड।
+यह `Document.archive` (NSKeyedArchive) को parse नहीं करती, `*.lz4` को नहीं
+छूती, layers restore नहीं करती और image render नहीं करती। अगर file में
+timelapse रिकॉर्ड नहीं हुआ था, तो यह utility drawing history से उसे recover
+नहीं कर सकती। ध्यान दें: `.procreate` से निकाले गए `.lz4` पर `lz4 -t` चलाना
+integrity check नहीं है — वे standalone LZ4 frames नहीं हैं।
 
-## जो यूटिलिटी जानबूझकर नहीं करती
-
-`Document.archive` (NSKeyedArchive) parse नहीं करती, `*.lz4` को नहीं छूती,
-लेयर्स पुनर्स्थापित नहीं करती और छवि render नहीं करती। अगर फ़ाइल में
-टाइमलाप्स रिकॉर्ड नहीं हुआ था, तो यह यूटिलिटी उसे चित्रण इतिहास से वापस
-नहीं ला सकती। ध्यान दें: `.procreate` से निकाले गए `.lz4` पर `lz4 -t`
-संपूर्णता जाँच नहीं है — वे स्वतंत्र LZ4 फ्रेम नहीं हैं।
-
-## फ़ॉर्मेट संदर्भ
+## Format references
 
 - Silica Viewer — https://github.com/heyzoish/silica-viewer
 - Silicate — https://github.com/axaril/silicate
 - ProcreateViewer — https://github.com/NothingData/ProcreateViewer
 
-## लाइसेंस
+## License
 
-Apache License 2.0, देखें `LICENSE`।
+Apache License 2.0, `LICENSE` देखें।
 
 ---
 
