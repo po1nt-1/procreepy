@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"strings"
 	"syscall"
 
@@ -28,8 +29,28 @@ const (
 
 // versionStr is the git tag at build time, injected via
 // -ldflags "-X procreepy/internal/cli.versionStr=..."; dev builds keep
-// the placeholder. The tag is the single source of truth for the version.
+// the placeholder, which versionToken refines. The tag is the single
+// source of truth for the version.
 var versionStr = "dev"
+
+// versionToken returns the --version value. An explicit -X injection
+// (release, make) wins as-is; a plain "dev" build that carries VCS
+// stamping (an in-tree `go build` without -X) reports dev-<short sha>
+// instead of a bare "dev". Stamp-less builds (-buildvcs=false,
+// out-of-tree) stay "dev".
+func versionToken() string {
+	if versionStr != "dev" {
+		return versionStr
+	}
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, s := range info.Settings {
+			if s.Key == "vcs.revision" && len(s.Value) >= 7 {
+				return "dev-" + s.Value[:7]
+			}
+		}
+	}
+	return "dev"
+}
 
 const epilog = `examples:
   procreepy artwork.procreate artwork.mp4
@@ -119,7 +140,7 @@ func run(argv []string, stdout, stderr io.Writer) int {
 	args, act, perr := parseArgs(argv)
 	switch act {
 	case actVersion:
-		fmt.Fprintln(stdout, prog, versionStr)
+		fmt.Fprintln(stdout, prog, versionToken())
 		return exitOK
 	case actHelp:
 		fmt.Fprintln(stdout, helpText)
