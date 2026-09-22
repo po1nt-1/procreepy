@@ -23,7 +23,7 @@ moov-first مع نسخ الإطارات كما هي. لا تفتح `Document.arc
 يُكفي Go (النسخة في `go.mod`).
 
 ```bash
-go build -o procreepy ./cmd/procreepy    # or: make bin
+go build -o procreepy ./cmd/procreepy    # or: make build
 ```
 
 ### البناء لأنظمة تشغيل أخرى

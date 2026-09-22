@@ -24,7 +24,7 @@ Sem dependências externas: nem `ffmpeg` nem `ffprobe` são
 necessários. Para compilar, só é preciso o Go (a versão está no `go.mod`).
 
 ```bash
-go build -o procreepy ./cmd/procreepy    # or: make bin
+go build -o procreepy ./cmd/procreepy    # or: make build
 ```
 
 ### Compilar para outros sistemas operacionais

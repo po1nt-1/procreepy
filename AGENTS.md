@@ -20,10 +20,9 @@ stay valid.
 |---|---|
 | Definition of done | `make check` (fmt check, build, vet, full suite) |
 | Format check | `make fmt-check` (fix with `make fmt`) |
-| Build | `make build` |
+| Build | `make build` (whole module + `./procreepy` stamped `dev-<sha>`; `procreepy --version` reports the token) |
 | Vet | `make vet` |
 | Full test suite | `make test` |
-| Binary | `make bin` |
 | Cross-compile | `make release GOOS=linux\|windows\|darwin GOARCH=amd64\|arm64\|arm` (linux arm: default GOARM=7); `make cross` for the whole CI matrix |
 | Release flags | baked into `make release` / `make repro`: `-trimpath -buildvcs=false -ldflags="-s -w"` |
 | Reproducibility | `make repro [FLAVOR=...]` -> `repro-<FLAVOR>.sha256` |

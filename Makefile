@@ -27,9 +27,14 @@ EXE := $(if $(filter windows,$(GOOS)),.exe,)
 BIN := procreepy-$(VERSION)-$(GOOS)-$(GOARCH)$(EXE)
 
 .DEFAULT_GOAL := check
-.PHONY: check fmt fmt-check build bin vet test coverage release cross repro clean
+.PHONY: check fmt fmt-check build vet test coverage release cross repro clean
 
 check: fmt-check build vet test
+
+# The version stamped into the binary: $(VERSION) is dev-<short sha> on
+# branches and the tag itself in a tag pipeline, so every build reports
+# where it came from (`procreepy --version`).
+VER_FLAGS = -trimpath -ldflags="-s -w -X procreepy/internal/cli.versionStr=$(VERSION)"
 
 fmt:
 	gofmt -w .
@@ -37,11 +42,11 @@ fmt:
 fmt-check:
 	@UNFORMATTED=$$(gofmt -l .) && if [ -n "$$UNFORMATTED" ]; then printf 'not formatted (run "make fmt"):\n%s\n' "$$UNFORMATTED"; exit 1; fi
 
+# Compiles the whole module and drops a runnable ./procreepy carrying the
+# dev-<sha> version, the same way `release` versions its tarballs.
 build:
 	$(GO) build ./...
-
-bin:
-	$(GO) build -o procreepy $(PKG)
+	$(GO) build $(VER_FLAGS) -o procreepy $(PKG)
 
 vet:
 	$(GO) vet ./...
@@ -66,7 +71,7 @@ coverage:
 #   make release GOOS=linux GOARCH=arm64 [VERSION=v1.2.3]
 release:
 	@test -n "$(GOOS)" && test -n "$(GOARCH)" || { echo 'usage: make release GOOS=<os> GOARCH=<arch> [VERSION=v1.2.3]' >&2; exit 2; }
-	$(GO) build -trimpath -buildvcs=false -ldflags="-s -w" -o "$(BIN)" $(PKG)
+	$(GO) build $(VER_FLAGS) -buildvcs=false -o "$(BIN)" $(PKG)
 	mkdir -p dist
 	mv "$(BIN)" dist/
 	# Normalized tar+gzip (fixed mtime/owner, no gzip timestamp) keeps the
@@ -85,9 +90,9 @@ cross:
 # separated by a cold build cache must hash identically. FLAVOR names the
 # resulting repro-<FLAVOR>.sha256 (CI: glibc vs musl images).
 repro:
-	$(GO) build -trimpath -buildvcs=false -ldflags="-s -w" -o /tmp/pass1 $(PKG)
+	$(GO) build $(VER_FLAGS) -buildvcs=false -o /tmp/pass1 $(PKG)
 	rm -rf "$$(go env GOCACHE)"
-	$(GO) build -trimpath -buildvcs=false -ldflags="-s -w" -o /tmp/pass2 $(PKG)
+	$(GO) build $(VER_FLAGS) -buildvcs=false -o /tmp/pass2 $(PKG)
 	@H1="$$(sha256sum /tmp/pass1 | cut -d' ' -f1)" && H2="$$(sha256sum /tmp/pass2 | cut -d' ' -f1)" && test "$$H1" = "$$H2" && echo "$$H1" > "repro-$(FLAVOR).sha256"
 
 clean:

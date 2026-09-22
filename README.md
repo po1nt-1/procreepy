@@ -28,13 +28,15 @@ environment CI uses (offline module mode, local toolchain, no cgo) and
 self-locates the Go toolchain.
 
 ```bash
-make build      # compile all packages
-make bin        # build the ./procreepy binary
+make build      # compile everything, drop a runnable ./procreepy
 make check      # gofmt + build + vet + full test suite
 ```
 
-Without `make`, the raw equivalent of `make bin` is
-`go build -o procreepy ./cmd/procreepy`.
+`make build` stamps the binary with `dev-<commit>` so `procreepy
+--version` reports where it came from (release tarballs carry the tag
+instead). Without `make`, the raw equivalent is `go build ./... && go
+build -o procreepy ./cmd/procreepy` (that binary reports `dev`, or
+`dev-<commit>` when built inside a git checkout).
 
 ### Building for other operating systems
 

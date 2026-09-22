@@ -26,7 +26,7 @@ Keine externen Abhängigkeiten: weder `ffmpeg` noch `ffprobe`.
 Zum Bauen wird nur Go benötigt (die Version steht in `go.mod`).
 
 ```bash
-go build -o procreepy ./cmd/procreepy    # or: make bin
+go build -o procreepy ./cmd/procreepy    # or: make build
 ```
 
 ### Für andere Betriebssysteme bauen

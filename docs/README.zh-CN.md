@@ -22,7 +22,7 @@ video/segments/segment-2.mp4
 (版本见 `go.mod`)。
 
 ```bash
-go build -o procreepy ./cmd/procreepy    # or: make bin
+go build -o procreepy ./cmd/procreepy    # or: make build
 ```
 
 ### 为其他操作系统构建

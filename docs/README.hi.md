@@ -25,7 +25,7 @@ parse करती है, और इन्हें एक moov-first MP4 म�
 केवल Go चाहिए (version `go.mod` में है)।
 
 ```bash
-go build -o procreepy ./cmd/procreepy    # or: make bin
+go build -o procreepy ./cmd/procreepy    # or: make build
 ```
 
 ### दुरसरी OS केलिए बिल्ड करन

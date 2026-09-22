@@ -23,7 +23,7 @@ raster-чанки (`*.lz4`) она не открывает вообще.
 Для сборки достаточно только Go (версия — в `go.mod`).
 
 ```bash
-go build -o procreepy ./cmd/procreepy    # or: make bin
+go build -o procreepy ./cmd/procreepy    # or: make build
 ```
 
 ### Сборка под другие ОС
