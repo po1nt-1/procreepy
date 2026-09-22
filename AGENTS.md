@@ -120,12 +120,19 @@ do not hand-roll expected strings:
 - Sample outputs in docs must be **authentic**: capture them from a real
   `procreepy` binary run, never invent them.
 
-## CI (GitLab, `.gitlab-ci.yml`; GitHub mirror in `.github/workflows/`)
+## CI (GitLab `.gitlab-ci.yml` is the structural reference; GitHub
+`.github/workflows/ci.yml` mirrors it job for job)
 
-Stages: test (`make check` + `make coverage` -> Cobertura artifact),
+Stages: test (`make check` + `make coverage` -> Cobertura report, SAST),
 build (`make release` x matrix: linux amd64/arm64/arm, windows amd64/arm64,
-darwin amd64/arm64; normalized reproducible tarballs + SHA256SUMS), verify
-(`make repro` on glibc vs musl, bit-for-bit proof). Do not weaken
+darwin amd64/arm64; normalized reproducible tarballs), verify (SHA256SUMS
+manifest + `make repro` on glibc vs musl, bit-for-bit proof), release
+(GitLab-only semantic-release tagger on main; `goreleaser release` per tag
+on both hosts). GitHub encodes the stage order with `needs:` (no stages);
+its SAST is CodeQL, coverage ships as an artifact, and there is no native
+secret-detection job. The GitLab-only tagger is the single source of
+version tags feeding both hosts, so it must not be mirrored. Keep the two
+pipelines in sync: same job names, same commands. Do not weaken
 `GOTOOLCHAIN=local`, `GOPROXY=off`, `CGO_ENABLED=0`, or the build flags —
 the Makefile enforces the same flags locally.
 

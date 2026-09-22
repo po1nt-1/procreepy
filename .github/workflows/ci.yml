@@ -16,9 +16,18 @@ permissions:
   # CodeQL uploads its results as code scanning alerts.
   security-events: write
 
+# The GitLab pipeline (.gitlab-ci.yml) is the structural reference and this
+# file mirrors it job for job. GitHub has no stages, so the same
+# test -> build -> verify order is encoded with needs:. Platform gaps are
+# noted at the jobs: SAST is CodeQL (no GitLab SAST template), there is no
+# native secret-detection job, and coverage ships as an artifact instead of
+# a parsed Cobertura check. The GitLab-only semantic-release tagger is not
+# mirrored on purpose: it is the single source of version tags that feeds
+# both hosts' goreleaser jobs.
+#
 # Steps run under bash because the scripts use bash expansions such as
-# ${GITHUB_SHA::7}; the repro job overrides this with sh — its alpine image
-# has no bash and its scripts stay POSIX.
+# ${GITHUB_SHA::8}; the repro jobs override this with sh — the musl image
+# has no bash and their scripts stay POSIX.
 defaults:
   run:
     shell: bash
@@ -34,6 +43,7 @@ env:
 # composite action (placed after checkout, which the local action requires)
 # and a malformed tag fails fast; jobs with needs: skip with their parents.
 jobs:
+  # stage: test
   test:
     runs-on: ubuntu-latest
     container: golang:1.27.1
@@ -51,6 +61,8 @@ jobs:
     # two profiles merged into the Cobertura report + merged text profile.
     - name: coverage
       run: make coverage
+    # GitLab parses coverage.xml as a Cobertura check; GitHub has no native
+    # equivalent, so the report is exported as an artifact.
     - uses: actions/upload-artifact@v4
       with:
         name: coverage
@@ -59,6 +71,7 @@ jobs:
           merged.out
         if-no-files-found: error
 
+  # GitHub's native SAST, standing in for the GitLab SAST template.
   sast:
     runs-on: ubuntu-latest
     steps:
@@ -75,7 +88,9 @@ jobs:
       with:
         category: "/language:go"
 
+  # stage: build (starts after the whole test stage, like GitLab)
   build:
+    needs: [test, sast]
     # Zero deps + CGO_ENABLED=0: the whole matrix cross-compiles on one runner.
     runs-on: ubuntu-latest
     container: golang:1.27.1
@@ -100,13 +115,16 @@ jobs:
         GOOS: ${{ matrix.goos }}
         GOARCH: ${{ matrix.goarch }}
       run: |
-        if [ "${GITHUB_REF_TYPE}" = "tag" ]; then VERSION="$GITHUB_REF_NAME"; else VERSION="dev-${GITHUB_SHA::7}"; fi
+        if [ "${GITHUB_REF_TYPE}" = "tag" ]; then VERSION="$GITHUB_REF_NAME"; else VERSION="dev-${GITHUB_SHA::8}"; fi
         make release GOOS="$GOOS" GOARCH="$GOARCH" VERSION="$VERSION"
     - uses: actions/upload-artifact@v4
       with:
         name: dist-${{ matrix.goos }}-${{ matrix.goarch }}
         path: dist/
+        retention-days: 30
 
+  # stage: verify (dist aggregates the matrix; the repro pair proves
+  # glibc == musl bit-for-bit)
   dist:
     needs: build
     runs-on: ubuntu-latest
@@ -127,21 +145,44 @@ jobs:
       with:
         name: dist
         path: dist/
+        retention-days: 30
 
-  repro:
+  # Two jobs instead of a matrix so the display names match GitLab's
+  # repro:glibc / repro:musl exactly; they share the same steps, mirroring
+  # GitLab's .repro-build template. sh, not bash: the alpine leg has no
+  # bash; both scripts are POSIX anyway.
+  repro-glibc:
+    name: repro:glibc
+    needs: build
     runs-on: ubuntu-latest
-    container: ${{ matrix.image }}
-    # The musl leg runs in golang:1.27.1-alpine, which has no bash; its steps
-    # (and the tag-guard) therefore use POSIX sh.
+    container: golang:1.27.1
     defaults:
       run:
         shell: sh
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-        - { flavor: glibc, image: golang:1.27.1 }
-        - { flavor: musl, image: golang:1.27.1-alpine }
+    env:
+      GOOS: linux
+      GOARCH: amd64
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - uses: ./.github/actions/tag-guard
+    - name: build twice across a cold cache
+      run: |
+        make repro FLAVOR=glibc
+    - uses: actions/upload-artifact@v4
+      with:
+        name: repro-glibc.sha256
+        path: repro-glibc.sha256
+
+  repro-musl:
+    name: repro:musl
+    needs: build
+    runs-on: ubuntu-latest
+    container: golang:1.27.1-alpine
+    defaults:
+      run:
+        shell: sh
     env:
       GOOS: linux
       GOARCH: amd64
@@ -154,15 +195,16 @@ jobs:
       run: |
         # The alpine image ships no make. Installing it does not affect
         # the proof (pure Go, no cgo, -trimpath).
-        if [ "${{ matrix.flavor }}" = "musl" ]; then apk add --no-cache make; fi
-        make repro FLAVOR="${{ matrix.flavor }}"
+        apk add --no-cache make
+        make repro FLAVOR=musl
     - uses: actions/upload-artifact@v4
       with:
-        name: repro-${{ matrix.flavor }}.sha256
-        path: repro-${{ matrix.flavor }}.sha256
+        name: repro-musl.sha256
+        path: repro-musl.sha256
 
   repro-compare:
-    needs: repro
+    name: repro:compare
+    needs: [repro-glibc, repro-musl]
     runs-on: ubuntu-latest
     steps:
     # Single-name downloads land at the workspace root; a pattern with a
@@ -177,3 +219,42 @@ jobs:
       run: |
         cmp repro-glibc.sha256 repro-musl.sha256
         echo "reproducible: $(cat repro-glibc.sha256) (glibc == musl)"
+
+  # stage: release — GitLab's semantic-release tagger (main only) is the
+  # single tag source for both hosts and is deliberately not mirrored; this
+  # job publishes that tag on this host.
+  goreleaser:
+    if: github.ref_type == 'tag'
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        # Full history + tags: goreleaser derives the version from the tag
+        # and generates the changelog from the commit range.
+        fetch-depth: 0
+    - name: verify tag format
+      # Refuses to publish anything that is not a (pre)release version.
+      uses: ./.github/actions/tag-guard
+    - name: install goreleaser
+      run: |
+        mkdir -p "$HOME/bin"
+        curl -LsSfL https://github.com/goreleaser/goreleaser/releases/download/v2.18.2/goreleaser_Linux_x86_64.tar.gz -o /tmp/goreleaser.tar.gz
+        tar -C "$HOME/bin" -xzf /tmp/goreleaser.tar.gz goreleaser
+        echo "$HOME/bin" >> "$GITHUB_PATH"
+    - name: release
+      # The origin remote is this GitHub repository, so goreleaser targets
+      # GitHub and authenticates with GITHUB_TOKEN — one release per tag on
+      # this host; the GitLab release for the same tag comes from the tag
+      # pipeline there.
+      run: goreleaser release --clean
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    # GitLab keeps the goreleaser dist/ as a 30-day artifact; mirror that.
+    - uses: actions/upload-artifact@v4
+      with:
+        name: goreleaser-dist
+        path: dist/
+        retention-days: 30
