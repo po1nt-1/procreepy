@@ -5,43 +5,41 @@ import "testing"
 // wantHelp is the exact stdout of --help (with a trailing newline).
 const wantHelp = `usage: procreepy [options] INPUT [OUTPUT]
 
-Extract the archived timelapse from .procreate files as ready-made MP4 videos.
+Extract the archived timelapse from .procreate files into ready-made MP4 videos.
 
 positional arguments:
   INPUT             file.procreate, a directory of them, or - for stdin
-  OUTPUT            output.mp4, a directory, or - for stdout (default for a single file)
-
+  OUTPUT            output.mp4, a directory, or - for stdout
 options:
   -h, --help        show this help message and exit
-  --list            list the segments and exit
-  --verify          check every segment, write nothing
+  --list            list the segments in playback order and exit
+  --verify          check every segment; create no output video
   -r, --recursive   directory input: also process sub-directories
   -f, --force       directory input: overwrite videos that already exist (default: skip them)
-  --strict          treat missing segment numbers as an error instead of a warning
+  --strict          treat missing segment numbers as errors instead of warnings
   --reencode        accepted for compatibility; stream copy is always used
-  --split           also write a video-less .procreepy.procreate beside each MP4
-  --tmpdir DIR      where to put temporary files (default: $TMPDIR, else /var/tmp)
-  -q, --quiet       only print warnings and errors
+  --split           write a video-less .procreepy.procreate next to each MP4 (requires an OUTPUT path, not stdout)
+  --tmpdir DIR      where to put temporary files (default: $TMPDIR, else /var/tmp, else the system temp directory)
+  -q, --quiet       only print warnings and errors to stderr
   --version         show program's version number and exit
-
+  --                stop option parsing; treat the remaining arguments as positional
 examples:
   procreepy artwork.procreate artwork.mp4
   procreepy artwork.procreate > artwork.mp4
   cat artwork.procreate | procreepy - > artwork.mp4
 
-  procreepy input/                    every .procreate in input/ -> output/timelaps/
-  procreepy input/ videos/            same, into videos/
-  procreepy -r input/                 also look in sub-directories (mirrored in the output)
-
-  procreepy --list artwork.procreate  show the segments, in playback order
-  procreepy --verify artwork.procreate  check every segment, write nothing
+  procreepy input/                    convert every .procreate in input/ -> output/timelaps/
+  procreepy input/ videos/            same, but write into videos/
+  procreepy -r input/                 also process sub-directories (mirrored in the output)
+  procreepy --list artwork.procreate  list the segments, in playback order
+  procreepy --verify artwork.procreate  check every segment; create no output video
 
   procreepy --split artwork.procreate   artwork.mp4 + artwork.procreepy.procreate
                                         (the slimmed project without the video)
-
-INPUT may be a file, a directory of files, or - for stdin.
-OUTPUT may be a file, a directory, or - / omitted for stdout.
-Messages go to stderr; stdout carries only video (or the --list/--verify report).
+INPUT may be a file, a directory, or - for stdin.
+OUTPUT may be a file, a directory, or - for stdout.
+For a single file, omitted OUTPUT means stdout; for directory input, omitted OUTPUT defaults to output/timelaps/.
+Messages and diagnostics go to stderr; stdout carries only video (or the --list/--verify report).
 `
 
 func TestVersionAndHelp(t *testing.T) {

@@ -8,15 +8,14 @@ import (
 	"strings"
 	"testing"
 
+	"procreepy/internal/batch"
 	"procreepy/internal/procreate"
 	"procreepy/internal/testkit"
 )
 
-// runCLI executes the CLI with argv, capturing what would go to stdout and
-// stderr, and returns the exit code plus both streams.
-// runCLI executes the command, capturing everything that would reach stdout
-// and stderr. Video bytes bypass the writer injection and go straight to
-// os.Stdout, so that global is swapped too.
+// runCLI executes the command, capturing both stdout and stderr, and returns
+// the exit code plus both streams. Video bytes bypass the writer injection and
+// go straight to os.Stdout, so that global is swapped too.
 func runCLI(t *testing.T, argv ...string) (int, string, string) {
 	t.Helper()
 
@@ -26,7 +25,6 @@ func runCLI(t *testing.T, argv ...string) (int, string, string) {
 	}
 	oldOut := os.Stdout
 	os.Stdout = ow
-
 	outBuf := &bytes.Buffer{}
 	done := make(chan struct{})
 	go func() {
@@ -43,7 +41,6 @@ func runCLI(t *testing.T, argv ...string) (int, string, string) {
 	or.Close()
 	return code, outBuf.String(), errBuf.String()
 }
-
 func goodArchivePath(t *testing.T) string {
 	t.Helper()
 	seg1 := testkit.Segment(320, 240, []uint32{100, 200}, []uint32{50, 60})
@@ -53,7 +50,6 @@ func goodArchivePath(t *testing.T) string {
 		"video/segments/segment-2.mp4": seg2,
 	}, false)
 }
-
 func assertMoovFirst(t *testing.T, data []byte) {
 	t.Helper()
 	if len(data) < 32 || string(data[4:8]) != "ftyp" {
@@ -64,7 +60,6 @@ func assertMoovFirst(t *testing.T, data []byte) {
 		t.Fatalf("not moov-first: % x", data[:min(32, len(data))])
 	}
 }
-
 func TestVersion(t *testing.T) {
 	code, out, _ := runCLI(t, "--version")
 	if code != 0 {
@@ -74,20 +69,32 @@ func TestVersion(t *testing.T) {
 		t.Fatalf("stdout = %q, want %q", out, want)
 	}
 }
-
 func TestHelp(t *testing.T) {
 	for _, flag := range []string{"-h", "--help"} {
 		code, out, _ := runCLI(t, flag)
 		if code != 0 {
 			t.Fatalf("%s: code = %d, want 0", flag, code)
 		}
-		if !strings.Contains(out, "usage: procreepy [options] INPUT [OUTPUT]") ||
-			!strings.Contains(out, "--tmpdir DIR") {
-			t.Errorf("%s: unexpected help output:\n%s", flag, out)
+		expected := []string{
+			"usage: procreepy [options] INPUT [OUTPUT]",
+			"INPUT             file.procreate, a directory of them, or - for stdin",
+			"OUTPUT            output.mp4, a directory, or - for stdout",
+			"--list            list the segments in playback order and exit",
+			"--verify          check every segment; create no output video",
+			"--split           write a video-less .procreepy.procreate next to each MP4 (requires an OUTPUT path, not stdout)",
+			"--tmpdir DIR      where to put temporary files (default: $TMPDIR, else /var/tmp, else the system temp directory)",
+			"-q, --quiet       only print warnings and errors to stderr",
+			"--                stop option parsing; treat the remaining arguments as positional",
+			"For a single file, omitted OUTPUT means stdout; for directory input, omitted OUTPUT defaults to " + batch.DefaultOutputDir + "/.",
+			"Messages and diagnostics go to stderr; stdout carries only video (or the --list/--verify report).",
+		}
+		for _, want := range expected {
+			if !strings.Contains(out, want) {
+				t.Errorf("%s: help output missing %q:\n%s", flag, want, out)
+			}
 		}
 	}
 }
-
 func TestUsageErrors(t *testing.T) {
 	cases := []struct {
 		name string
@@ -117,7 +124,6 @@ func TestUsageErrors(t *testing.T) {
 		}
 	}
 }
-
 func TestListFile(t *testing.T) {
 	in := goodArchivePath(t)
 	code, out, errOut := runCLI(t, "--list", in)
@@ -128,7 +134,6 @@ func TestListFile(t *testing.T) {
 		t.Fatalf("stdout:\n%s", out)
 	}
 }
-
 func TestListWithOutputRejected(t *testing.T) {
 	in := goodArchivePath(t)
 	code, _, errOut := runCLI(t, "--list", in, "out.mp4")
@@ -139,7 +144,6 @@ func TestListWithOutputRejected(t *testing.T) {
 		t.Fatalf("stderr:\n%s", errOut)
 	}
 }
-
 func TestMissingInput(t *testing.T) {
 	code, _, errOut := runCLI(t, "--list", "nope.procreate")
 	if code != 3 {
@@ -149,7 +153,6 @@ func TestMissingInput(t *testing.T) {
 		t.Fatalf("stderr:\n%s", errOut)
 	}
 }
-
 func TestBadZip(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "junk.procreate")
 	if err := os.WriteFile(p, []byte("this is not a zip"), 0o644); err != nil {
@@ -163,7 +166,6 @@ func TestBadZip(t *testing.T) {
 		t.Fatalf("stderr:\n%s", errOut)
 	}
 }
-
 func TestNoSegments(t *testing.T) {
 	p := testkit.WriteArchive(t, map[string][]byte{"canvas.bin": []byte("no video")}, false)
 	code, _, errOut := runCLI(t, p)
@@ -174,7 +176,6 @@ func TestNoSegments(t *testing.T) {
 		t.Fatalf("stderr:\n%s", errOut)
 	}
 }
-
 func TestBadSegment(t *testing.T) {
 	seg := testkit.Segment(320, 240, []uint32{100, 200}, []uint32{50, 60})
 	trunc := seg[:len(seg)/2]
@@ -187,7 +188,6 @@ func TestBadSegment(t *testing.T) {
 		t.Fatalf("stderr:\n%s", errOut)
 	}
 }
-
 func TestIncompatible(t *testing.T) {
 	seg1 := testkit.Segment(320, 240, []uint32{100}, []uint32{50})
 	seg2 := testkit.Segment(640, 480, []uint32{100}, []uint32{50})
@@ -206,10 +206,9 @@ func TestIncompatible(t *testing.T) {
 		t.Fatalf("stderr:\n%s", errOut)
 	}
 }
-
 func TestConvertToFile(t *testing.T) {
 	in := goodArchivePath(t)
-	out := filepath.Join(t.TempDir(), "out.mp4") // parents are not auto-created (like the original)
+	out := filepath.Join(t.TempDir(), "out.mp4") // parent directories are not created automatically (matching the original)
 	code, _, errOut := runCLI(t, in, out)
 	if code != 0 {
 		t.Fatalf("code = %d, want 0 (stderr: %s)", code, errOut)
@@ -220,7 +219,6 @@ func TestConvertToFile(t *testing.T) {
 	}
 	assertMoovFirst(t, data)
 }
-
 func TestConvertDerivesName(t *testing.T) {
 	in := goodArchivePath(t)
 	dir := t.TempDir()
@@ -234,7 +232,6 @@ func TestConvertDerivesName(t *testing.T) {
 		t.Fatalf("derived output missing: %s", want)
 	}
 }
-
 func TestConvertToStdout(t *testing.T) {
 	in := goodArchivePath(t)
 	code, out, errOut := runCLI(t, in, "-")
@@ -243,7 +240,6 @@ func TestConvertToStdout(t *testing.T) {
 	}
 	assertMoovFirst(t, []byte(out))
 }
-
 func TestQuietSuppressesInfo(t *testing.T) {
 	in := goodArchivePath(t)
 	out := filepath.Join(t.TempDir(), "q.mp4")
@@ -252,10 +248,9 @@ func TestQuietSuppressesInfo(t *testing.T) {
 		t.Fatalf("code = %d, want 0 (stderr: %s)", code, errOut)
 	}
 	if errOut != "" {
-		t.Fatalf("quiet mode printed diagnostics (Info is suppressed, nothing else expected):\n%s", errOut)
+		t.Fatalf("quiet mode printed diagnostics (Info is suppressed; nothing else is expected):\n%s", errOut)
 	}
 }
-
 func TestBatchDirectory(t *testing.T) {
 	root := t.TempDir()
 	files := map[string][]byte{
@@ -281,8 +276,7 @@ func TestBatchDirectory(t *testing.T) {
 	}
 	assertMoovFirst(t, data)
 }
-
-func TestSplitRequiresFileOutput(t *testing.T) {
+func TestSplitRejectsStdout(t *testing.T) {
 	in := goodArchivePath(t)
 	code, _, errOut := runCLI(t, "--split", in)
 	if code != 2 {
@@ -292,20 +286,18 @@ func TestSplitRequiresFileOutput(t *testing.T) {
 		t.Fatalf("stderr:\n%s", errOut)
 	}
 }
-
 func TestSplitConflictsWithListVerify(t *testing.T) {
 	in := goodArchivePath(t)
 	for _, argv := range [][]string{{"--split", "--list", in}, {"--split", "--verify", in}} {
 		code, _, errOut := runCLI(t, argv...)
 		if code != 2 {
-			t.Fatalf("%v: code = %d, want 2 (stderr: %s)", argv, code, errOut)
+			t.Errorf("%v: code = %d, want 2 (stderr: %s)", argv, code, errOut)
 		}
 		if !strings.Contains(errOut, "--split cannot be combined with --list or --verify") {
-			t.Fatalf("%v: stderr:\n%s", argv, errOut)
+			t.Errorf("%v: stderr:\n%s", argv, errOut)
 		}
 	}
 }
-
 func TestSplitEndToEnd(t *testing.T) {
 	in := goodArchivePath(t)
 	dir := t.TempDir()
@@ -332,7 +324,6 @@ func TestSplitEndToEnd(t *testing.T) {
 		}
 	}
 }
-
 func TestParseArgsDoubleDash(t *testing.T) {
 	a, act, err := parseArgs([]string{"--", "weird --name", "out.mp4"})
 	if err != nil || act != actNone {
@@ -342,7 +333,6 @@ func TestParseArgsDoubleDash(t *testing.T) {
 		t.Fatalf("args = %+v", a)
 	}
 }
-
 func TestParseArgsClusteredShorts(t *testing.T) {
 	a, _, err := parseArgs([]string{"-rqf", "in", "out"})
 	if err != nil {

@@ -1,5 +1,5 @@
-// Package cli implements the procreepy command line: argparse-style
-// argument parsing, dispatch, and the exit-code mapping.
+// Package cli implements the procreepy command-line interface: argparse-style
+// argument parsing, dispatch, and exit-code mapping.
 package cli
 
 import (
@@ -22,9 +22,8 @@ import (
 const (
 	prog = "procreepy"
 
-	usageLine = prog + " [options] INPUT [OUTPUT]"
-
-	description = "Extract the archived timelapse from .procreate files as ready-made MP4 videos."
+	usageLine   = prog + " [options] INPUT [OUTPUT]"
+	description = "Extract the archived timelapse from .procreate files into ready-made MP4 videos."
 )
 
 // versionStr is the git tag at build time, injected via
@@ -57,19 +56,18 @@ const epilog = `examples:
   procreepy artwork.procreate > artwork.mp4
   cat artwork.procreate | procreepy - > artwork.mp4
 
-  procreepy input/                    every .procreate in input/ -> ` + batch.DefaultOutputDir + `/
-  procreepy input/ videos/            same, into videos/
-  procreepy -r input/                 also look in sub-directories (mirrored in the output)
-
-  procreepy --list artwork.procreate  show the segments, in playback order
-  procreepy --verify artwork.procreate  check every segment, write nothing
+  procreepy input/                    convert every .procreate in input/ -> ` + batch.DefaultOutputDir + `/
+  procreepy input/ videos/            same, but write into videos/
+  procreepy -r input/                 also process sub-directories (mirrored in the output)
+  procreepy --list artwork.procreate  list the segments, in playback order
+  procreepy --verify artwork.procreate  check every segment; create no output video
 
   procreepy --split artwork.procreate   artwork.mp4 + artwork.procreepy.procreate
                                         (the slimmed project without the video)
-
-INPUT may be a file, a directory of files, or - for stdin.
-OUTPUT may be a file, a directory, or - / omitted for stdout.
-Messages go to stderr; stdout carries only video (or the --list/--verify report).`
+INPUT may be a file, a directory, or - for stdin.
+OUTPUT may be a file, a directory, or - for stdout.
+For a single file, omitted OUTPUT means stdout; for directory input, omitted OUTPUT defaults to ` + batch.DefaultOutputDir + `/.
+Messages and diagnostics go to stderr; stdout carries only video (or the --list/--verify report).`
 
 const helpText = `usage: ` + usageLine + `
 
@@ -77,21 +75,20 @@ const helpText = `usage: ` + usageLine + `
 
 positional arguments:
   INPUT             file.procreate, a directory of them, or - for stdin
-  OUTPUT            output.mp4, a directory, or - for stdout (default for a single file)
-
+  OUTPUT            output.mp4, a directory, or - for stdout
 options:
   -h, --help        show this help message and exit
-  --list            list the segments and exit
-  --verify          check every segment, write nothing
+  --list            list the segments in playback order and exit
+  --verify          check every segment; create no output video
   -r, --recursive   directory input: also process sub-directories
   -f, --force       directory input: overwrite videos that already exist (default: skip them)
-  --strict          treat missing segment numbers as an error instead of a warning
+  --strict          treat missing segment numbers as errors instead of warnings
   --reencode        accepted for compatibility; stream copy is always used
-  --split           also write a video-less .procreepy.procreate beside each MP4
-  --tmpdir DIR      where to put temporary files (default: $TMPDIR, else /var/tmp)
-  -q, --quiet       only print warnings and errors
+  --split           write a video-less .procreepy.procreate next to each MP4 (requires an OUTPUT path, not stdout)
+  --tmpdir DIR      where to put temporary files (default: $TMPDIR, else /var/tmp, else the system temp directory)
+  -q, --quiet       only print warnings and errors to stderr
   --version         show program's version number and exit
-
+  --                stop option parsing; treat the remaining arguments as positional
 ` + epilog
 
 // Exit codes (matching the original tool).
@@ -152,10 +149,8 @@ func run(argv []string, stdout, stderr io.Writer) int {
 		return exitUsage
 	}
 	log := newLogger(stderr, args.quiet)
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-
 	var (
 		code     int
 		err      error
@@ -174,7 +169,6 @@ func run(argv []string, stdout, stderr io.Writer) int {
 		}()
 		code, err = dispatch(ctx, log, args)
 	}()
-
 	if panicked {
 		return exitFailure
 	}
@@ -207,12 +201,10 @@ func newLogger(stderr io.Writer, quiet bool) *slog.Logger {
 		},
 	}))
 }
-
 func dispatch(ctx context.Context, log *slog.Logger, a *parsedArgs) (int, error) {
 	src := a.input
 	isDir := src != "-" && isDirectory(src)
 	cfg := video.Config{Strict: a.strict, Reencode: a.reencode, TmpDir: a.tmpdir, Split: a.split}
-
 	if a.list || a.verify {
 		if a.hasOutput {
 			return 0, &video.UsageError{Msg: "--list and --verify take a single INPUT and no OUTPUT"}
@@ -235,7 +227,6 @@ func dispatch(ctx context.Context, log *slog.Logger, a *parsedArgs) (int, error)
 		}
 		return 0, err
 	}
-
 	if isDir {
 		outArg := ""
 		if a.hasOutput {
@@ -253,7 +244,6 @@ func dispatch(ctx context.Context, log *slog.Logger, a *parsedArgs) (int, error)
 	}
 	return exitOK, nil
 }
-
 func codeOf(err error) int {
 	var ue *video.UsageError
 	if errors.As(err, &ue) {
@@ -281,7 +271,6 @@ func codeOf(err error) int {
 	}
 	return exitFailure
 }
-
 func isDirectory(p string) bool {
 	st, err := os.Stat(p)
 	return err == nil && st.IsDir()
@@ -295,7 +284,6 @@ func parseArgs(argv []string) (*parsedArgs, action, error) {
 	a := &parsedArgs{}
 	positional := 0
 	var extra []string
-
 	fail := func(format string, args ...any) (*parsedArgs, action, error) {
 		return nil, actNone, fmt.Errorf(format, args...)
 	}
@@ -307,7 +295,6 @@ func parseArgs(argv []string) (*parsedArgs, action, error) {
 		}
 		return nil, actNone, nil
 	}
-
 	i := 0
 	for i < len(argv) {
 		arg := argv[i]
@@ -435,7 +422,6 @@ func parseArgs(argv []string) (*parsedArgs, action, error) {
 		}
 		i++
 	}
-
 	if len(extra) > 0 {
 		return fail("unrecognized arguments: %s", strings.Join(extra, " "))
 	}
