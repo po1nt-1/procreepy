@@ -6,7 +6,11 @@
 
 export GOTOOLCHAIN = local
 export GOPROXY = off
-export GOFLAGS = -mod=readonly
+# -buildvcs=false keeps every make-driven go command (build, vet, test,
+# coverage) independent of the checkout's git state: some CI checkouts
+# expose a git that refuses go's VCS probes (exit 128), and the build must
+# stay free of VCS state anyway. The version still comes from VER_FLAGS.
+export GOFLAGS = -mod=readonly -buildvcs=false
 export CGO_ENABLED = 0
 
 # Locate the Go toolchain: `go` on PATH first, then the canonical

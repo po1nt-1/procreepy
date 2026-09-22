@@ -12,7 +12,7 @@ export CGO_ENABLED=0                  # baseline for raw go commands; make sets 
 ```
 
 All commands are make targets; the Makefile forces the same hermetic
-environment CI uses (`GOTOOLCHAIN=local`, `GOPROXY=off`, `GOFLAGS=-mod=readonly`,
+environment CI uses (`GOTOOLCHAIN=local`, `GOPROXY=off`, `GOFLAGS=-mod=readonly -buildvcs=false`,
 `CGO_ENABLED=0`), so `make` works from a bare shell. The raw `go` equivalents
 stay valid.
 
@@ -40,8 +40,11 @@ exactly once, from the e2e binary), then merges both profiles into
 
 ## Environment constraints
 
-- Offline: `GOPROXY=off`, `GOFLAGS=-mod=readonly`, `GOTOOLCHAIN=local`.
-  Never add third-party dependencies; `go.mod` is only module + go directive.
+- Offline: `GOPROXY=off`, `GOFLAGS=-mod=readonly -buildvcs=false`,
+  `GOTOOLCHAIN=local`. Never add third-party dependencies; `go.mod` is only
+  module + go directive. Make-driven builds carry no VCS stamping (some CI
+  checkouts expose a git go cannot probe); the version comes from the `-X`
+  injection instead.
 - `CGO_ENABLED=0` always; no C compiler in this environment, so `go test -race`
   is impossible — do not try.
 - No `python3`; POSIX `sh` only (no bashisms in scripts).
