@@ -25,7 +25,7 @@ Sin dependencias externas: ni `ffmpeg` ni `ffprobe` son
 necesarios. Para compilar solo se necesita Go (la versión está en `go.mod`).
 
 ```bash
-go build -o procreepy ./cmd/procreepy
+go build -o procreepy ./cmd/procreepy    # or: make bin
 ```
 
 ### Compilar para otros sistemas operativos
@@ -36,13 +36,13 @@ estos comandos funciona:
 
 | Destino | Comando |
 |---|---|
-| Linux x86-64 | `GOOS=linux GOARCH=amd64 go build -o procreepy ./cmd/procreepy` |
-| Linux ARM de 64 bits (Raspberry Pi, Graviton) | `GOOS=linux GOARCH=arm64 go build -o procreepy ./cmd/procreepy` |
-| Linux ARM de 32 bits | `GOOS=linux GOARCH=arm GOARM=7 go build -o procreepy ./cmd/procreepy` |
-| Windows x86-64 (10/11) | `GOOS=windows GOARCH=amd64 go build -o procreepy.exe ./cmd/procreepy` |
-| Windows ARM de 64 bits | `GOOS=windows GOARCH=arm64 go build -o procreepy.exe ./cmd/procreepy` |
-| macOS Intel | `GOOS=darwin GOARCH=amd64 go build -o procreepy ./cmd/procreepy` |
-| macOS Apple Silicon (M1–M5) | `GOOS=darwin GOARCH=arm64 go build -o procreepy ./cmd/procreepy` |
+| Linux x86-64 | `make release GOOS=linux GOARCH=amd64` |
+| Linux ARM de 64 bits (Raspberry Pi, Graviton) | `make release GOOS=linux GOARCH=arm64` |
+| Linux ARM de 32 bits | `make release GOOS=linux GOARCH=arm` |
+| Windows x86-64 (10/11) | `make release GOOS=windows GOARCH=amd64` |
+| Windows ARM de 64 bits | `make release GOOS=windows GOARCH=arm64` |
+| macOS Intel | `make release GOOS=darwin GOARCH=amd64` |
+| macOS Apple Silicon (M1–M5) | `make release GOOS=darwin GOARCH=arm64` |
 
 Todas las compilaciones son estáticas (sin cgo): un binario de Linux se
 ejecuta en cualquier distribución, sea cual sea su versión de glibc. La

@@ -25,7 +25,7 @@ parse करती है, और इन्हें एक moov-first MP4 म�
 केवल Go चाहिए (version `go.mod` में है)।
 
 ```bash
-go build -o procreepy ./cmd/procreepy
+go build -o procreepy ./cmd/procreepy    # or: make bin
 ```
 
 ### दुरसरी OS केलिए बिल्ड करन
@@ -36,13 +36,13 @@ cross-compile होतै है। किसी भी platform से, इन
 
 | Target | Command |
 |---|---|
-| Linux x86-64 | `GOOS=linux GOARCH=amd64 go build -o procreepy ./cmd/procreepy` |
-| Linux ARM 64-bit (Raspberry Pi, Graviton) | `GOOS=linux GOARCH=arm64 go build -o procreepy ./cmd/procreepy` |
-| Linux ARM 32-bit | `GOOS=linux GOARCH=arm GOARM=7 go build -o procreepy ./cmd/procreepy` |
-| Windows x86-64 (10/11) | `GOOS=windows GOARCH=amd64 go build -o procreepy.exe ./cmd/procreepy` |
-| Windows ARM 64-bit | `GOOS=windows GOARCH=arm64 go build -o procreepy.exe ./cmd/procreepy` |
-| macOS Intel | `GOOS=darwin GOARCH=amd64 go build -o procreepy ./cmd/procreepy` |
-| macOS Apple Silicon (M1–M5) | `GOOS=darwin GOARCH=arm64 go build -o procreepy ./cmd/procreepy` |
+| Linux x86-64 | `make release GOOS=linux GOARCH=amd64` |
+| Linux ARM 64-bit (Raspberry Pi, Graviton) | `make release GOOS=linux GOARCH=arm64` |
+| Linux ARM 32-bit | `make release GOOS=linux GOARCH=arm` |
+| Windows x86-64 (10/11) | `make release GOOS=windows GOARCH=amd64` |
+| Windows ARM 64-bit | `make release GOOS=windows GOARCH=arm64` |
+| macOS Intel | `make release GOOS=darwin GOARCH=amd64` |
+| macOS Apple Silicon (M1–M5) | `make release GOOS=darwin GOARCH=arm64` |
 
 सभी builds static हैं (cgo नहीं): Linux binary किसी भी distribution पर
 चलती है, चाहे उसकी glibc की version कुछ भी हो। GitLab CI pipeline हर

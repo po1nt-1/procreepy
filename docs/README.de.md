@@ -26,7 +26,7 @@ Keine externen Abhängigkeiten: weder `ffmpeg` noch `ffprobe`.
 Zum Bauen wird nur Go benötigt (die Version steht in `go.mod`).
 
 ```bash
-go build -o procreepy ./cmd/procreepy
+go build -o procreepy ./cmd/procreepy    # or: make bin
 ```
 
 ### Für andere Betriebssysteme bauen
@@ -36,13 +36,13 @@ cross-kompilieren. Von jeder Plattform aus funktioniert jeder dieser Befehle:
 
 | Ziel | Befehl |
 |---|---|
-| Linux x86-64 | `GOOS=linux GOARCH=amd64 go build -o procreepy ./cmd/procreepy` |
-| Linux ARM 64-Bit (Raspberry Pi, Graviton) | `GOOS=linux GOARCH=arm64 go build -o procreepy ./cmd/procreepy` |
-| Linux ARM 32-Bit | `GOOS=linux GOARCH=arm GOARM=7 go build -o procreepy ./cmd/procreepy` |
-| Windows x86-64 (10/11) | `GOOS=windows GOARCH=amd64 go build -o procreepy.exe ./cmd/procreepy` |
-| Windows ARM 64-Bit | `GOOS=windows GOARCH=arm64 go build -o procreepy.exe ./cmd/procreepy` |
-| macOS Intel | `GOOS=darwin GOARCH=amd64 go build -o procreepy ./cmd/procreepy` |
-| macOS Apple Silicon (M1–M5) | `GOOS=darwin GOARCH=arm64 go build -o procreepy ./cmd/procreepy` |
+| Linux x86-64 | `make release GOOS=linux GOARCH=amd64` |
+| Linux ARM 64-Bit (Raspberry Pi, Graviton) | `make release GOOS=linux GOARCH=arm64` |
+| Linux ARM 32-Bit | `make release GOOS=linux GOARCH=arm` |
+| Windows x86-64 (10/11) | `make release GOOS=windows GOARCH=amd64` |
+| Windows ARM 64-Bit | `make release GOOS=windows GOARCH=arm64` |
+| macOS Intel | `make release GOOS=darwin GOARCH=amd64` |
+| macOS Apple Silicon (M1–M5) | `make release GOOS=darwin GOARCH=arm64` |
 
 Alle Builds sind statisch (ohne cgo): Ein Linux-Binary läuft auf jeder
 Distribution, unabhängig von deren glibc-Version. Die GitLab-CI-Pipeline

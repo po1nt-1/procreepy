@@ -9,7 +9,11 @@ export GOPROXY = off
 export GOFLAGS = -mod=readonly
 export CGO_ENABLED = 0
 
-GO := go
+# Locate the Go toolchain: `go` on PATH first, then the canonical
+# /usr/local/go install. The directory is prepended to PATH so the bare
+# go/gofmt invocations inside recipes resolve the same way.
+GO := $(shell command -v go 2>/dev/null || echo /usr/local/go/bin/go)
+export PATH := $(dir $(GO)):$(PATH)
 PKG := ./cmd/procreepy
 
 # Name of the release artifacts: an explicit VERSION= wins; locally the
@@ -89,4 +93,5 @@ repro:
 clean:
 	rm -rf dist procreepy procreepy.exe
 	rm -f xpkg.out merged.out coverage.xml cover.e2e.out cover.base.out
+	rm -f repro-*.sha256
 	rm -f /tmp/pass1 /tmp/pass2

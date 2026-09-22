@@ -21,31 +21,45 @@ never opens `Document.archive`, layers, or raster chunks (`*.lz4`).
 ## Requirements
 
 No external dependencies: no `ffmpeg`, no `ffprobe`. Building requires
-only Go (the version is in `go.mod`).
+only Go (the version is in `go.mod`) and `make` (present on every
+supported platform; on minimal systems it is a package-manager away).
+The Makefile is the canonical build entry: it pins the same hermetic
+environment CI uses (offline module mode, local toolchain, no cgo) and
+self-locates the Go toolchain.
 
 ```bash
-go build -o procreepy ./cmd/procreepy
+make build      # compile all packages
+make bin        # build the ./procreepy binary
+make check      # gofmt + build + vet + full test suite
 ```
+
+Without `make`, the raw equivalent of `make bin` is
+`go build -o procreepy ./cmd/procreepy`.
 
 ### Building for other operating systems
 
 The project is pure Go and cross-compiles cleanly for every supported
-target. From any platform, any of these works:
+target. From any platform:
 
 | Target | Command |
 |---|---|
-| Linux x86-64 | `GOOS=linux GOARCH=amd64 go build -o procreepy ./cmd/procreepy` |
-| Linux ARM 64-bit (Raspberry Pi, Graviton) | `GOOS=linux GOARCH=arm64 go build -o procreepy ./cmd/procreepy` |
-| Linux ARM 32-bit | `GOOS=linux GOARCH=arm GOARM=7 go build -o procreepy ./cmd/procreepy` |
-| Windows x86-64 (10/11) | `GOOS=windows GOARCH=amd64 go build -o procreepy.exe ./cmd/procreepy` |
-| Windows ARM 64-bit | `GOOS=windows GOARCH=arm64 go build -o procreepy.exe ./cmd/procreepy` |
-| macOS Intel | `GOOS=darwin GOARCH=amd64 go build -o procreepy ./cmd/procreepy` |
-| macOS Apple Silicon (M1–M5) | `GOOS=darwin GOARCH=arm64 go build -o procreepy ./cmd/procreepy` |
+| Linux x86-64 | `make release GOOS=linux GOARCH=amd64` |
+| Linux ARM 64-bit (Raspberry Pi, Graviton) | `make release GOOS=linux GOARCH=arm64` |
+| Linux ARM 32-bit | `make release GOOS=linux GOARCH=arm` |
+| Windows x86-64 (10/11) | `make release GOOS=windows GOARCH=amd64` |
+| Windows ARM 64-bit | `make release GOOS=windows GOARCH=arm64` |
+| macOS Intel | `make release GOOS=darwin GOARCH=amd64` |
+| macOS Apple Silicon (M1–M5) | `make release GOOS=darwin GOARCH=arm64` |
+
+Each target produces a normalized `dist/procreepy-<version>-<os>-<arch>.tar.gz`
+and prints its SHA-256; `make cross` builds the whole matrix at once, and
+`make repro` proves a build is bit-for-bit reproducible. The raw equivalent
+for one target is `GOOS=… GOARCH=… go build -o procreepy[.exe] ./cmd/procreepy`.
 
 All builds are static (no cgo): a Linux binary runs on any distribution
-regardless of its glibc version. The GitLab CI pipeline builds exactly these
-targets on every commit; the `dist` job publishes the tarballs plus a
-`SHA256SUMS` manifest, and the `repro:*` jobs prove the binaries are
+regardless of its glibc version. The CI pipelines (GitLab and GitHub) build
+exactly these targets on every commit; the `dist` job publishes the tarballs
+plus a `SHA256SUMS` manifest, and the `repro:*` jobs prove the binaries are
 bit-for-bit reproducible.
 
 - Linux/macOS: no installation step, run the binary directly.
@@ -240,7 +254,7 @@ disk-backed directory) instead of a bare "No space left".
 ## Tests
 
 ```bash
-go test ./...
+make test          # or: go test ./...
 ```
 
 Real `.procreate` files are not needed: the tests build ZIPs out of

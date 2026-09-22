@@ -22,7 +22,7 @@ video/segments/segment-2.mp4
 (版本见 `go.mod`)。
 
 ```bash
-go build -o procreepy ./cmd/procreepy
+go build -o procreepy ./cmd/procreepy    # or: make bin
 ```
 
 ### 为其他操作系统构建
@@ -32,13 +32,13 @@ go build -o procreepy ./cmd/procreepy
 
 | 目标 | 命令 |
 |---|---|
-| Linux x86-64 | `GOOS=linux GOARCH=amd64 go build -o procreepy ./cmd/procreepy` |
-| Linux ARM 64 位（树莓派、Graviton） | `GOOS=linux GOARCH=arm64 go build -o procreepy ./cmd/procreepy` |
-| Linux ARM 32 位 | `GOOS=linux GOARCH=arm GOARM=7 go build -o procreepy ./cmd/procreepy` |
-| Windows x86-64（10/11） | `GOOS=windows GOARCH=amd64 go build -o procreepy.exe ./cmd/procreepy` |
-| Windows ARM 64 位 | `GOOS=windows GOARCH=arm64 go build -o procreepy.exe ./cmd/procreepy` |
-| macOS Intel | `GOOS=darwin GOARCH=amd64 go build -o procreepy ./cmd/procreepy` |
-| macOS Apple Silicon（M1–M5） | `GOOS=darwin GOARCH=arm64 go build -o procreepy ./cmd/procreepy` |
+| Linux x86-64 | `make release GOOS=linux GOARCH=amd64` |
+| Linux ARM 64 位（树莓派、Graviton） | `make release GOOS=linux GOARCH=arm64` |
+| Linux ARM 32 位 | `make release GOOS=linux GOARCH=arm` |
+| Windows x86-64（10/11） | `make release GOOS=windows GOARCH=amd64` |
+| Windows ARM 64 位 | `make release GOOS=windows GOARCH=arm64` |
+| macOS Intel | `make release GOOS=darwin GOARCH=amd64` |
+| macOS Apple Silicon（M1–M5） | `make release GOOS=darwin GOARCH=arm64` |
 
 所有构建均为静态（无 cgo）：Linux 二进制文件可在任何发行版上运行，无论其
 glibc 版本如何。GitLab CI 流水线在每次提交时都会构建上述目标；`dist` 任务
