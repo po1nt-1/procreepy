@@ -16,8 +16,9 @@ permissions:
   # CodeQL uploads its results as code scanning alerts.
   security-events: write
 
-# Container jobs default to `sh` (dash); the scripts use bash expansions
-# like ${GITHUB_SHA::7}.
+# Steps run under bash because the scripts use bash expansions such as
+# ${GITHUB_SHA::7}; the repro job overrides this with sh — its alpine image
+# has no bash and its scripts stay POSIX.
 defaults:
   run:
     shell: bash
@@ -130,6 +131,11 @@ jobs:
   repro:
     runs-on: ubuntu-latest
     container: ${{ matrix.image }}
+    # The musl leg runs in golang:1.27.1-alpine, which has no bash; its steps
+    # (and the tag-guard) therefore use POSIX sh.
+    defaults:
+      run:
+        shell: sh
     strategy:
       fail-fast: false
       matrix:
