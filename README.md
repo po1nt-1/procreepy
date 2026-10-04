@@ -15,8 +15,11 @@ video/segments/segment-2.mp4
 
 The utility takes exactly these files: sorts them **numerically**
 (`segment-9` before `segment-10`), parses the MP4 structure of every segment,
-and rebuilds them into one moov-first MP4 with the frames copied as-is. It
-never opens `Document.archive`, layers, or raster chunks (`*.lz4`).
+and rebuilds them into one moov-first MP4 with the frames copied as-is.
+In batch mode it also writes, for every converted artwork, a re-importable
+copy of the project without the timelapse, and — with `--psd` — a layered
+Photoshop PSD. The timelapse path never opens `Document.archive`, layers, or
+raster chunks (`*.lz4`); only `--psd` does.
 
 ## Requirements
 
@@ -32,11 +35,11 @@ make build      # compile everything, drop a runnable ./procreepy
 make check      # gofmt + build + vet + full test suite
 ```
 
-`make build` stamps the binary with `dev-<commit>` so `procreepy
---version` reports where it came from (release tarballs carry the tag
-instead). Without `make`, the raw equivalent is `go build ./... && go
-build -o procreepy ./cmd/procreepy` (that binary reports `dev`, or
-`dev-<commit>` when built inside a git checkout).
+`make build` stamps the binary with `dev-<short sha>` (or `dev-nogit`
+outside a git checkout) so `procreepy --version` reports where it came from
+(release tarballs carry the tag instead). Without `make`, the raw equivalent
+is `go build ./... && go build -o procreepy ./cmd/procreepy` (that binary
+reports `dev`, or `dev-<commit>` when VCS stamping is available).
 
 ### Building for other operating systems
 
@@ -60,9 +63,10 @@ for one target is `GOOS=… GOARCH=… go build -o procreepy[.exe] ./cmd/procree
 
 All builds are static (no cgo): a Linux binary runs on any distribution
 regardless of its glibc version. The CI pipelines (GitLab and GitHub) build
-exactly these targets on every commit; the `dist` job publishes the tarballs
-plus a `SHA256SUMS` manifest, and the `repro:*` jobs prove the binaries are
-bit-for-bit reproducible.
+exactly these targets on every commit, and run the test suite natively on
+Windows as well, since that is the primary platform; the `dist` job publishes
+the tarballs plus a `SHA256SUMS` manifest, and the `repro:*` jobs prove the
+binaries are bit-for-bit reproducible.
 
 - Linux/macOS: no installation step, run the binary directly.
 - Windows: the binary is unsigned, so SmartScreen may show "Protected your
@@ -78,83 +82,122 @@ procreepy artwork.procreate > artwork.mp4
 cat artwork.procreate | procreepy - > artwork.mp4
 procreepy --list artwork.procreate
 procreepy --verify artwork.procreate
-procreepy --split artwork.procreate artwork.mp4
 ```
 
 All four `INPUT`/`OUTPUT` combinations are supported:
 `FILE OUTPUT`, `FILE -`, `- OUTPUT`, `- -`. If `OUTPUT` is omitted, it is
-stdout. If `OUTPUT` is an existing directory, the video is placed in it under
-the original name (`procreepy art.procreate videos/` → `videos/art.mp4`).
+stdout. If `OUTPUT` is an existing directory (or ends with a slash), the
+video is placed in it under the original name (`procreepy art.procreate
+videos/` → `videos/art.mp4`).
 
-### Batch mode: a folder of `.procreate` files → a folder of videos
+### Batch mode: a folder of `.procreate` files → a folder of videos and projects
 
-The "I have `input/` full of `.procreate` files and want the videos in
-`output/timelaps/`" scenario:
+The "I have `input/` full of `.procreate` files and want the results in
+`output/`" scenario:
 
 ```bash
 procreepy input/
 ```
 
+Every converted artwork yields a pair — the timelapse and a re-importable
+project without it:
+
 ```text
-input/                              output/timelaps/
-├── Portrait of a Cat.procreate →   ├── Portrait of a Cat.mp4
-├── Landscape v2.procreate      →   ├── Landscape v2.mp4
-└── No Timelapse.procreate              └── (skipped, with a warning)
+input/                               output/
+├── Portrait of a Cat.procreate  →   ├── timelapses/Portrait of a Cat.mp4
+│                                    ├── projects/Portrait of a Cat.procreepy.procreate
+├── Landscape v2.procreate       →   ├── timelapses/Landscape v2.mp4
+│                                    └── projects/Landscape v2.procreepy.procreate
+└── No Timelapse.procreate              (skipped, with a warning — nothing written)
 ```
 
-- **Names**: `<original name without .procreate>.mp4`. Spaces, Cyrillic, and
-  special characters are preserved as-is.
-- **Output folder**: by default `output/timelaps/` relative to the current
+- **Names**: `<original name without .procreate>`, with `.mp4` or
+  `.procreepy.procreate` appended. Spaces, Cyrillic, and special characters
+  are preserved as-is; on case-insensitive file systems, names that differ
+  only in letter case get `-2`, `-3`, … suffixes.
+- **Output folder**: by default `output/` relative to the current
   directory, created automatically. Another one can be given as the second
   argument: `procreepy input/ ~/Videos/procreate`.
-- **Re-running is safe**: videos that already exist are skipped. To rebuild
-  everything: `--force` (`-f`).
+- **The slim project**: `projects/NAME.procreepy.procreate` is the same
+  archive without the `video/segments/segment-N.mp4` members; every other
+  member is carried over byte for byte (order, compression methods,
+  timestamps). The project keeps the modification time of its source, so
+  re-importing it into Procreate does not reshuffle the gallery.
+- **Re-running is safe**: an input whose timelapse and project already
+  exist is skipped; a half-finished set is regenerated as a whole. To
+  rebuild everything: `--force` (`-f`).
 - **`-r`** also descends into sub-folders; the sub-folder structure is
-  mirrored in the result (`input/2025/Cat.procreate` →
-  `output/timelaps/2025/Cat.mp4`), so identical names in different folders do
+  mirrored in both output trees, so identical names in different folders do
   not collide.
 - **One bad file does not stop the rest.** A file without a timelapse
-  (recording was off) is a warning, not an error. A corrupt file is an error:
-  it lands in the final summary, and the exit code becomes `1`.
+  (recording was off) is a warning, not an error — nothing is written for
+  it. A corrupt file is an error: it lands in the final summary, and the
+  exit code becomes `1`.
+- **Atomic sets**: one input's outputs (timelapse + project, plus the PSD
+  with `--psd`) are written to scratch files and published together, or not
+  at all. A failed run never leaves an orphan video next to a missing
+  project.
 - Hidden files (`._Foo.procreate`, which macOS leaves behind when copying)
   are ignored.
 - Originals are never modified.
 
-Sample output (all of it goes to stderr):
+Sample output (all of it goes to stderr; the run ends with exit code `1`
+because of the corrupt file):
 
 ```text
-level=INFO msg="batch conversion started" files=4 input=input output=output/timelaps/
+level=INFO msg="batch conversion started" files=4 input=input/ timelapses=output/timelapses/ projects=output/projects/
 level=ERROR msg="file conversion failed" input="input/Corrupt file.procreate" err="input is not a valid ZIP archive: input/Corrupt file.procreate (not a .procreate file, or truncated/corrupted)"
-level=INFO msg=converted input="input/Landscape v2.procreate" output="output/timelaps/Landscape v2.mp4"
+level=INFO msg=converted input="input/Landscape v2.procreate" timelapse="output/timelapses/Landscape v2.mp4" project="output/projects/Landscape v2.procreepy.procreate" removed_segments=17 video_size="6.7 MiB"
 level=WARN msg="no timelapse video inside, skipped" input="input/No Timelapse.procreate"
-level=INFO msg=converted input="input/Portrait of a Cat.procreate" output="output/timelaps/Portrait of a Cat.mp4"
+level=INFO msg=converted input="input/Portrait of a Cat.procreate" timelapse="output/timelapses/Portrait of a Cat.mp4" project="output/projects/Portrait of a Cat.procreepy.procreate" removed_segments=18 video_size="4.1 MiB"
 level=INFO msg="batch completed" converted=2 existed=0 no_video=1 failed=1
+```
+
+`removed_segments` is the number of segment files dropped from the slim
+project, and `video_size` their total (compressed) size inside the archive.
+Running the same command again reports, for each existing set:
+
+```text
+level=INFO msg="skipped, outputs already exist (use --force to overwrite)" input="input/Landscape v2.procreate" timelapse="output/timelapses/Landscape v2.mp4" project="output/projects/Landscape v2.procreepy.procreate"
 ```
 
 `--list` and `--verify` also accept a directory and walk all files in it.
 
-### Splitting: video + slimmed-down project (`--split`)
-
-The point: timelapses take up more space than the drawing itself — for
-example, when backing up to an iPad you may want to keep them separate.
-`--split` writes, next to each finished `MP4`, a slimmed copy of the project
-**without** anything under `video/`:
+### PSD export (`--psd`)
 
 ```bash
-procreepy --split artwork.procreate artwork.mp4
+procreepy --psd input/ out/
 ```
+
+Directory input only. Next to every converted pair, `out/psd/NAME.psd` is
+written, published atomically with the rest of the set:
 
 ```text
-artwork.procreate  →  artwork.mp4                    (the timelapse, lossless)
-                     →  artwork.procreepy.procreate  (the same project, minus video/)
+level=INFO msg="psd exported" input="input/Portrait of a Cat.procreate" psd="out-psd/psd/Portrait of a Cat.psd" layers=3
 ```
 
-Batch mode works the same way: next to every `X.mp4` an
-`X.procreepy.procreate` appears. All other archive members (layers,
-`Info.plist`, previews) are carried over byte for byte: order, compression
-methods, and timestamps are preserved. The original `.procreate` is not
-modified; the slimmed copy cannot be written to stdout, so `--split` requires
-a file `OUTPUT`.
+What the PSD carries:
+
+- the layer tree (groups, order), layer names (Unicode), visibility,
+  opacity, blend modes, bounds and lock state;
+- 8-bit RGBA pixels for every layer, PackBits-compressed;
+- the DPI and the embedded ICC profile;
+- a merged composite taken verbatim from Procreate's own flattened render
+  (when that is missing or damaged, the visible layers are composited in
+  Normal mode as an approximation).
+
+What it does not — the PSD is an export, not a lossless round trip:
+
+- layer masks and exact clipping-to-below semantics do not survive;
+- text layers keep their pixels but not their editable text data;
+- straight (unpremultiplied) alpha cannot be recovered exactly: Procreate
+  stores premultiplied 8-bit tiles, so fringe colors at layer edges may
+  differ slightly;
+- canvases wider or taller than 30000 pixels are refused outright (the PSD
+  format limit, as opposed to PSB).
+
+The `.procreate` project stays the master copy; treat the PSD as a snapshot
+for Photoshop and other importers.
 
 ### Diagnostics
 
@@ -163,13 +206,15 @@ procreepy --list artwork.procreate
 ```
 
 ```text
-input: artwork.procreate
-segments: 12
+input: input/Portrait of a Cat.procreate
+segments: 18
 
 1  video/segments/segment-1.mp4
 2  video/segments/segment-2.mp4
+3  video/segments/segment-3.mp4
 ...
-12 video/segments/segment-12.mp4
+17 video/segments/segment-17.mp4
+18 video/segments/segment-18.mp4
 ```
 
 ```bash
@@ -185,13 +230,17 @@ only reads the ZIP directory.
 
 | Option | What it does |
 |---|---|
+| `-h`, `--help` | show the help message and exit |
+| `--list` | list the segments in playback order and exit |
+| `--verify` | check every segment; create no output video |
 | `-r`, `--recursive` | directory input: descend into sub-folders as well |
-| `-f`, `--force` | directory input: overwrite videos that already exist |
+| `-f`, `--force` | directory input: overwrite outputs that already exist |
 | `--strict` | treat missing segment numbers as an error (warning by default) |
-| `--reencode` | accepted for compatibility with older scripts; there is no re-encoding, it is always stream copy |
-| `--split` | write `X.procreepy.procreate` next to each `MP4` — the project minus `video/` |
-| `--tmpdir DIR` | where to put temporary files |
+| `--psd` | directory input: also export a layered `.psd` per artwork |
+| `--tmpdir DIR` | where to put temporary files (default: `$TMPDIR`, else `/var/tmp`, else the system temp directory) |
 | `-q`, `--quiet` | print only warnings and errors |
+| `--version` | show the version number and exit |
+| `--` | stop option parsing; treat the remaining arguments as positional |
 
 ## How it works
 
@@ -208,7 +257,10 @@ only reads the ZIP directory.
    with a clear message, not a surprise in the finished video.
 6. The moov-first MP4 is assembled: `ftyp`, `moov` (all tracks, sliced out of
    the segments), then `mdat` after `mdat` in playback order.
-7. The temporary file (if any) is removed always — on success, on error, on
+7. Everything the run promises (the MP4, the slim project, the PSD) is staged
+   to scratch files and published as one set only after the last one has
+   succeeded; in batch mode the next input is attempted regardless.
+8. The temporary file (if any) is removed always — on success, on error, on
    Ctrl+C, and on SIGTERM.
 
 ### Writing to a file and to stdout
@@ -223,10 +275,26 @@ for players and editors alike; the exact same file goes into a pipe —
 - **File** output is atomic: a `.partial` file next to the target, renamed
   only after success. A failed run leaves no stubs and never corrupts an
   existing file.
+- Windows specifics: the final rename is a `MoveFileEx` with replace-existing,
+  so `--force` and regenerating an incomplete set replace the existing
+  outputs in place, just like on Unix. It is not strictly atomic the way
+  POSIX rename is; the practical difference appears in one case — if the
+  target is still open in another program (say, a media player holding the
+  previous MP4), the rename is refused with a readable `Access is denied`
+  error, the old file is left untouched, and a rerun after closing the
+  program succeeds.
 - stdout is never polluted with text. All log lines (`level=INFO`/`WARN`/
   `ERROR`, one structured key=value record per line) go to stderr. The single
   exception is the `--list`/`--verify` report, where stdout *is* the result.
   If stdout is a terminal, the utility refuses to dump a binary MP4 into it.
+
+### Console colors
+
+When stderr is an interactive terminal and the `NO_COLOR` environment
+variable is unset, the `WARN` and `ERROR` level tokens are painted (yellow
+and bold red); `INFO` stays plain. Pipes, redirects, CI and tests keep the
+byte-for-byte plain format, so nothing scripted changes. There is
+deliberately no `--color` flag.
 
 ### Temporary files and Fedora
 
@@ -243,7 +311,7 @@ disk-backed directory) instead of a bare "No space left".
 |---|---|
 | 0 | success |
 | 1 | unexpected error; in batch mode — at least one file failed |
-| 2 | bad arguments; output would overwrite input; stdout is a terminal |
+| 2 | bad arguments (including `--psd` with a single file, or a directory of results aimed at stdout); OUTPUT is the same file as INPUT; stdout is a terminal |
 | 3 | input not found, empty, or not a ZIP |
 | 4 | no `video/segments` in the archive (no timelapse was recorded) |
 | 5 | corrupt segment; ambiguous or missing numbering (`--strict`) |
@@ -272,11 +340,13 @@ segments, and the whole batch mode.
 
 ## What the utility deliberately does not do
 
-It does not parse `Document.archive` (NSKeyedArchive), does not touch
-`*.lz4`, does not restore layers, and does not render the image. If a
-timelapse was not recorded in the file, this utility cannot recover it from
-the drawing history. Note: `lz4 -t` on a `.lz4` taken out of a `.procreate`
-is not an integrity check — they are not standalone LZ4 frames.
+The timelapse path does not parse `Document.archive` (NSKeyedArchive), does
+not touch `*.lz4`, does not restore layers, and does not render the image.
+`--psd` does parse the document — for the export described above, with the
+fidelity limits described there. If a timelapse was not recorded in the
+file, this utility cannot recover it from the drawing history. Note:
+`lz4 -t` on a `.lz4` taken out of a `.procreate` is not an integrity check —
+they are not standalone LZ4 frames.
 
 ## Format references
 

@@ -56,14 +56,20 @@ const epilog = `examples:
   procreepy artwork.procreate > artwork.mp4
   cat artwork.procreate | procreepy - > artwork.mp4
 
-  procreepy input/                    convert every .procreate in input/ -> ` + batch.DefaultOutputDir + `/
-  procreepy input/ videos/            same, but write into videos/
-  procreepy -r input/                 also process sub-directories (mirrored in the output)
+  procreepy input/                    every .procreate in input/ -> ` + batch.DefaultOutputDir + `/
+  procreepy input/ out/               same, but write into out/
+  procreepy -r input/ out/            also process sub-directories (mirrored in both output trees)
+  procreepy --psd input/ out/         additionally export a layered .psd per artwork
   procreepy --list artwork.procreate  list the segments, in playback order
   procreepy --verify artwork.procreate  check every segment; create no output video
 
-  procreepy --split artwork.procreate   artwork.mp4 + artwork.procreepy.procreate
-                                        (the slimmed project without the video)
+A directory INPUT produces two trees under OUTPUT, one per purpose:
+  OUTPUT/` + batch.TimelapseDir + `/NAME.mp4                    the joined timelapse
+  OUTPUT/` + batch.ProjectDir + `/NAME` + batch.ProjectSuffix + `   the project without the timelapse
+With --psd, OUTPUT/` + batch.PSDDir + `/NAME.psd is written too.
+The project keeps the modification time of its source, so re-importing it into
+Procreate does not reshuffle the gallery. Originals are never modified.
+
 INPUT may be a file, a directory, or - for stdin.
 OUTPUT may be a file, a directory, or - for stdout.
 For a single file, omitted OUTPUT means stdout; for directory input, omitted OUTPUT defaults to ` + batch.DefaultOutputDir + `/.
@@ -81,10 +87,9 @@ options:
   --list            list the segments in playback order and exit
   --verify          check every segment; create no output video
   -r, --recursive   directory input: also process sub-directories
-  -f, --force       directory input: overwrite videos that already exist (default: skip them)
+  -f, --force       directory input: overwrite outputs that already exist (default: skip them)
   --strict          treat missing segment numbers as errors instead of warnings
-  --reencode        accepted for compatibility; stream copy is always used
-  --split           write a video-less .procreepy.procreate next to each MP4 (requires an OUTPUT path, not stdout)
+  --psd             directory input: also export a layered .psd per artwork
   --tmpdir DIR      where to put temporary files (default: $TMPDIR, else /var/tmp, else the system temp directory)
   -q, --quiet       only print warnings and errors to stderr
   --version         show program's version number and exit
@@ -113,8 +118,7 @@ type parsedArgs struct {
 	recursive bool
 	force     bool
 	strict    bool
-	reencode  bool
-	split     bool
+	psd       bool
 	quiet     bool
 	tmpdir    string
 }
@@ -186,12 +190,17 @@ func run(argv []string, stdout, stderr io.Writer) int {
 // newLogger builds the one application logger: TextHandler on the injected
 // stderr, INFO by default and WARN with -q. The time attribute is dropped so
 // output stays deterministic (the terminal or CI system stamps it).
+//
+// Levels are painted (WARN in yellow, ERROR in bold red) only when stderr is
+// a real terminal and the user has not opted out via NO_COLOR; redirects,
+// pipes, CI and tests keep the plain byte-for-byte format, which is what the
+// e2e suite pins. There is no --color flag on purpose.
 func newLogger(stderr io.Writer, quiet bool) *slog.Logger {
 	level := slog.LevelInfo
 	if quiet {
 		level = slog.LevelWarn
 	}
-	return slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{
+	opts := &slog.HandlerOptions{
 		Level: level,
 		ReplaceAttr: func(_ []string, v slog.Attr) slog.Attr {
 			if v.Key == "time" {
@@ -199,18 +208,35 @@ func newLogger(stderr io.Writer, quiet bool) *slog.Logger {
 			}
 			return v
 		},
-	}))
+	}
+	var h slog.Handler = slog.NewTextHandler(stderr, opts)
+	if f, ok := stderr.(*os.File); ok && f != nil && colorOK(f) {
+		h = newColorHandler(opts, f)
+	}
+	return slog.New(h)
 }
+
+// colorOK decides whether the WARN/ERROR levels get SGR codes on f. It is a
+// var so tests can drive newLogger deterministically; the production rule is
+// "interactive terminal and NO_COLOR unset" (on Windows that includes
+// enabling VT processing, with a graceful fallback to no color).
+var colorOK = func(f *os.File) bool {
+	if os.Getenv("NO_COLOR") != "" {
+		return false
+	}
+	return isTerminal(int(f.Fd()))
+}
+
 func dispatch(ctx context.Context, log *slog.Logger, a *parsedArgs) (int, error) {
 	src := a.input
 	isDir := src != "-" && isDirectory(src)
-	cfg := video.Config{Strict: a.strict, Reencode: a.reencode, TmpDir: a.tmpdir, Split: a.split}
+	cfg := video.Config{Strict: a.strict, TmpDir: a.tmpdir, PSD: a.psd}
 	if a.list || a.verify {
 		if a.hasOutput {
 			return 0, &video.UsageError{Msg: "--list and --verify take a single INPUT and no OUTPUT"}
 		}
-		if a.split {
-			return 0, &video.UsageError{Msg: "--split cannot be combined with --list or --verify"}
+		if a.psd {
+			return 0, &video.UsageError{Msg: "--psd cannot be combined with --list or --verify"}
 		}
 		action := func(input string) (string, error) {
 			if a.list {
@@ -233,6 +259,10 @@ func dispatch(ctx context.Context, log *slog.Logger, a *parsedArgs) (int, error)
 			outArg = a.output
 		}
 		return batch.ConvertDirectory(ctx, log, src, outArg, cfg, a.force, a.recursive)
+	}
+	if a.psd {
+		return 0, &video.UsageError{Msg: "--psd needs a directory INPUT; it writes into OUTPUT/" +
+			batch.PSDDir + "/"}
 	}
 
 	out, err := video.ResolveOutput(src, a.output, a.hasOutput)
@@ -360,16 +390,11 @@ func parseArgs(argv []string) (*parsedArgs, action, error) {
 					return nil, actNone, err
 				}
 				a.strict = true
-			case "reencode":
-				if _, _, err := storeTrue("reencode", hasVal, val); err != nil {
+			case "psd":
+				if _, _, err := storeTrue("psd", hasVal, val); err != nil {
 					return nil, actNone, err
 				}
-				a.reencode = true
-			case "split":
-				if _, _, err := storeTrue("split", hasVal, val); err != nil {
-					return nil, actNone, err
-				}
-				a.split = true
+				a.psd = true
 			case "quiet":
 				if _, _, err := storeTrue("quiet", hasVal, val); err != nil {
 					return nil, actNone, err

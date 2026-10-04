@@ -12,13 +12,11 @@ import (
 	"procreepy/internal/procreate"
 )
 
-// Config tunes an operation. Reencode is accepted for command-line
-// compatibility with the original tool; stream copy is always used.
+// Config tunes an operation.
 type Config struct {
-	Strict   bool
-	Reencode bool
-	TmpDir   string
-	Split    bool // also write a video-less .procreepy.procreate beside the MP4
+	Strict bool
+	TmpDir string
+	PSD    bool // directory mode: also export a layered .psd per artwork
 }
 
 // resolvedInput is a seekable copy of the input plus its user-facing label.

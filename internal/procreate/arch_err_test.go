@@ -166,30 +166,19 @@ func TestCtxCopyNBranches(t *testing.T) {
 	}
 }
 
-func TestSplitRenameToDir(t *testing.T) {
-	src := testkit.WriteArchive(t, testEntries(), false)
-	dst := t.TempDir() + "/slim-dir"
-	if err := os.Mkdir(dst, 0o755); err != nil {
+// TestSlimWriteError surfaces a destination write failure rather than reporting
+// a slimmed archive that was never completed.
+func TestSlimWriteError(t *testing.T) {
+	p := testkit.Project(2).Write(t, t.TempDir(), "in.procreate")
+	a, err := Open(p, p)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := SplitTimelapse(src, dst); err == nil || !strings.Contains(err.Error(), "cannot write") {
-		t.Fatalf("rename onto directory: err = %v, want cannot write", err)
-	}
-}
-
-func TestSplitCorruptNonVideoMember(t *testing.T) {
-	entries := map[string][]byte{"canvas/proj/project.dat": []byte("junk")}
-	raw := testkit.ArchiveBytes(entries, false)
-	raw[localDataStart(raw)+1] ^= 0xff
-	src := t.TempDir() + "/corrupt.procreate"
-	if err := os.WriteFile(src, raw, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	dst := t.TempDir() + "/out.procreate"
-	if _, _, err := SplitTimelapse(src, dst); err == nil {
-		t.Fatal("expected rewrite error for corrupt member")
-	}
-	if _, err := os.Stat(dst); !os.IsNotExist(err) {
-		t.Fatalf("partial output left behind: %v", err)
+	defer a.Close()
+	boom := errors.New("disk on fire")
+	w := writerFunc(func([]byte) (int, error) { return 0, boom })
+	if _, err := a.WriteSlimmed(context.Background(), w); err == nil ||
+		!strings.Contains(err.Error(), "disk on fire") {
+		t.Fatalf("err = %v, want the underlying write error", err)
 	}
 }

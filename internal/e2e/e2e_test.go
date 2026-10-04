@@ -304,19 +304,38 @@ func strayWarn(member string) string {
 	return slogLine(slog.LevelWarn, "ignoring "+member+": name does not match segment-<number>.mp4")
 }
 
-// batchStart renders the batch-mode header line.
-func batchStart(files int, inDir, outDir string) string {
-	return slogLine(slog.LevelInfo, "batch conversion started", "files", files, "input", inDir, "output", outDir+"/")
+// withSlash mirrors batch.withSlash: a directory spelled with a trailing
+// separator is kept as the caller gave it, otherwise one is appended.
+func withSlash(dir string) string {
+	if strings.HasSuffix(dir, "/") || strings.HasSuffix(dir, string(os.PathSeparator)) {
+		return dir
+	}
+	return dir + string(os.PathSeparator)
 }
 
-// batchConverted renders one successful per-file conversion line.
-func batchConverted(src, dst string) string {
-	return slogLine(slog.LevelInfo, "converted", "input", src, "output", dst)
+// batchStart renders the batch-mode header line, with the two per-purpose
+// output trees as rendered by batch.go (trailing separators).
+func batchStart(files int, inDir, timelapseDir, projectsDir string) string {
+	return slogLine(slog.LevelInfo, "batch conversion started", "files", files,
+		"input", withSlash(inDir), "timelapses", withSlash(timelapseDir), "projects", withSlash(projectsDir))
 }
 
-// batchSkipped renders the skip (already exists) per-file line.
-func batchSkipped(src, dst string) string {
-	return slogLine(slog.LevelInfo, "skipped, output already exists (use --force to overwrite)", "input", src, "output", dst)
+// batchConverted renders one successful per-file conversion line. removed is
+// the number of segment members dropped; size, the compressed bytes freed.
+func batchConverted(src, timelapse, project string, removed int, size int64) string {
+	return slogLine(slog.LevelInfo, "converted", "input", src, "timelapse", timelapse,
+		"project", project, "removed_segments", removed, "video_size", humanBytes(size))
+}
+
+// batchSkipped renders the skip (whole output set already exists) per-file line.
+func batchSkipped(src, timelapse, project string) string {
+	return slogLine(slog.LevelInfo, "skipped, outputs already exist (use --force to overwrite)",
+		"input", src, "timelapse", timelapse, "project", project)
+}
+
+// batchIncomplete renders the half-finished-earlier-run notice.
+func batchIncomplete(src string) string {
+	return slogLine(slog.LevelWarn, "outputs are incomplete, regenerating the whole set", "input", src)
 }
 
 // batchNoVideo renders the soft-skip line for an archive without a timelapse.
@@ -332,11 +351,6 @@ func batchFailed(src, errMsg string) string {
 // batchDone renders the batch summary line.
 func batchDone(converted, existed, noVideo, failed int) string {
 	return slogLine(slog.LevelInfo, "batch completed", "converted", converted, "existed", existed, "no_video", noVideo, "failed", failed)
-}
-
-// batchSlimmed renders the --split per-file slimmed-archive line.
-func batchSlimmed(path string, removedFiles int, size int64) string {
-	return slogLine(slog.LevelInfo, "slimmed archive written", "path", path, "removed_files", removedFiles, "video_size", humanBytes(size))
 }
 
 // diffStrings renders a human diff for small string mismatches.

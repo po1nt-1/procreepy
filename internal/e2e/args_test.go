@@ -2,7 +2,8 @@ package e2e
 
 import "testing"
 
-// wantHelp is the exact stdout of --help (with a trailing newline).
+// wantHelp is the exact stdout of --help (with a trailing newline), captured
+// from a real run of the instrumented binary.
 const wantHelp = `usage: procreepy [options] INPUT [OUTPUT]
 
 Extract the archived timelapse from .procreate files into ready-made MP4 videos.
@@ -15,10 +16,9 @@ options:
   --list            list the segments in playback order and exit
   --verify          check every segment; create no output video
   -r, --recursive   directory input: also process sub-directories
-  -f, --force       directory input: overwrite videos that already exist (default: skip them)
+  -f, --force       directory input: overwrite outputs that already exist (default: skip them)
   --strict          treat missing segment numbers as errors instead of warnings
-  --reencode        accepted for compatibility; stream copy is always used
-  --split           write a video-less .procreepy.procreate next to each MP4 (requires an OUTPUT path, not stdout)
+  --psd             directory input: also export a layered .psd per artwork
   --tmpdir DIR      where to put temporary files (default: $TMPDIR, else /var/tmp, else the system temp directory)
   -q, --quiet       only print warnings and errors to stderr
   --version         show program's version number and exit
@@ -28,17 +28,23 @@ examples:
   procreepy artwork.procreate > artwork.mp4
   cat artwork.procreate | procreepy - > artwork.mp4
 
-  procreepy input/                    convert every .procreate in input/ -> output/timelaps/
-  procreepy input/ videos/            same, but write into videos/
-  procreepy -r input/                 also process sub-directories (mirrored in the output)
+  procreepy input/                    every .procreate in input/ -> output/
+  procreepy input/ out/               same, but write into out/
+  procreepy -r input/ out/            also process sub-directories (mirrored in both output trees)
+  procreepy --psd input/ out/         additionally export a layered .psd per artwork
   procreepy --list artwork.procreate  list the segments, in playback order
   procreepy --verify artwork.procreate  check every segment; create no output video
 
-  procreepy --split artwork.procreate   artwork.mp4 + artwork.procreepy.procreate
-                                        (the slimmed project without the video)
+A directory INPUT produces two trees under OUTPUT, one per purpose:
+  OUTPUT/timelapses/NAME.mp4                    the joined timelapse
+  OUTPUT/projects/NAME.procreepy.procreate   the project without the timelapse
+With --psd, OUTPUT/psd/NAME.psd is written too.
+The project keeps the modification time of its source, so re-importing it into
+Procreate does not reshuffle the gallery. Originals are never modified.
+
 INPUT may be a file, a directory, or - for stdin.
 OUTPUT may be a file, a directory, or - for stdout.
-For a single file, omitted OUTPUT means stdout; for directory input, omitted OUTPUT defaults to output/timelaps/.
+For a single file, omitted OUTPUT means stdout; for directory input, omitted OUTPUT defaults to output/.
 Messages and diagnostics go to stderr; stdout carries only video (or the --list/--verify report).
 `
 
@@ -90,10 +96,17 @@ func TestUsageErrors(t *testing.T) {
 			"--list and --verify take a single INPUT and no OUTPUT", true},
 		{"verify_with_output", []string{"--verify", "a.procreate", "out.mp4"},
 			"--list and --verify take a single INPUT and no OUTPUT", true},
-		{"split_list", []string{"--split", "--list", "a.procreate"},
-			"--split cannot be combined with --list or --verify", true},
-		{"split_verify", []string{"--split", "--verify", "a.procreate"},
-			"--split cannot be combined with --list or --verify", true},
+		{"psd_list", []string{"--psd", "--list", "a.procreate"},
+			"--psd cannot be combined with --list or --verify", true},
+		{"psd_verify", []string{"--psd", "--verify", "a.procreate"},
+			"--psd cannot be combined with --list or --verify", true},
+		{"psd_file_input", []string{"--psd", "in.procreate", "out.mp4"},
+			"--psd needs a directory INPUT; it writes into OUTPUT/psd/", true},
+		// --reencode and --split no longer exist; they parse as unknown flags.
+		{"reencode_removed", []string{"--reencode", "a.procreate", "out.mp4"},
+			"unrecognized arguments: --reencode", false},
+		{"split_removed", []string{"--split", "a.procreate", "out.mp4"},
+			"unrecognized arguments: --split", false},
 	}
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {

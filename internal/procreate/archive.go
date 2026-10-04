@@ -83,9 +83,28 @@ func (a *Archive) ReadMember(name string) ([]byte, error) {
 	return buf, nil
 }
 
+// HasMember reports whether the archive contains a member with this exact name.
+func (a *Archive) HasMember(name string) bool {
+	for _, f := range a.zr.File {
+		if f.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
 // ParseSegment reads one segment member out of the archive (verifying its
 // CRC) and parses it as a progressive MP4.
 func (a *Archive) ParseSegment(name string) (*mp4.Movie, error) {
+	return a.ParseSegmentCtx(context.Background(), name)
+}
+
+// ParseSegmentCtx is ParseSegment that honours ctx while reading.
+//
+// A segment is parsed from memory, so the read is the only part that can take
+// long enough to matter; wrapping the reader keeps Ctrl-C responsive on a
+// multi-hundred-megabyte segment without reshaping the MP4 parser's API.
+func (a *Archive) ParseSegmentCtx(ctx context.Context, name string) (*mp4.Movie, error) {
 	f, err := a.member(name)
 	if err != nil {
 		return nil, err
@@ -94,9 +113,12 @@ func (a *Archive) ParseSegment(name string) (*mp4.Movie, error) {
 	if err != nil {
 		return nil, &BadSegmentError{Msg: fmt.Sprintf("cannot read segment %s: %v", name, err)}
 	}
-	buf, err := io.ReadAll(rc)
+	buf, err := io.ReadAll(&ctxReader{ctx: ctx, r: rc})
 	rc.Close()
 	if err != nil {
+		if cerr := ctxCheck(ctx); cerr != nil {
+			return nil, cerr
+		}
 		return nil, &BadSegmentError{Msg: fmt.Sprintf("segment %s is corrupted inside the archive: %v", name, err)}
 	}
 	movie, err := mp4.Parse(bytes.NewReader(buf), int64(len(buf)))
@@ -165,6 +187,23 @@ func ctxCheck(ctx context.Context) error {
 	default:
 		return nil
 	}
+}
+
+// ctxReader aborts a read as soon as ctx is done. Reads are capped so a single
+// Read call on a large member cannot outlast the cancellation by much.
+type ctxReader struct {
+	ctx context.Context
+	r   io.Reader
+}
+
+func (c *ctxReader) Read(p []byte) (int, error) {
+	if err := ctxCheck(c.ctx); err != nil {
+		return 0, err
+	}
+	if len(p) > copyChunk {
+		p = p[:copyChunk]
+	}
+	return c.r.Read(p)
 }
 
 func ctxSkip(ctx context.Context, r io.Reader, n int64) error {

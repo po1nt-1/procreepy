@@ -49,6 +49,25 @@ test:
         coverage_format: cobertura
         path: coverage.xml
 
+# Windows is the primary user scenario (PLAN §16), so the suite also runs
+# natively on a real Windows machine, not only as a cross-compile target:
+# native build, vet, and the full test suite, whose e2e part executes the
+# compiled .exe (path, rename and console behavior included). Needs a
+# self-hosted runner tagged `windows` with Go >= 1.27 on PATH; the shared
+# docker executor cannot run .exe tests, and without such a runner this
+# job stays pending. The env mirrors the Makefile's hermetic set (pinned
+# toolchain, no module network, no cgo); flags are passed per command,
+# space-free, so the job works under cmd.exe and PowerShell runners alike.
+test:windows:
+  stage: test
+  tags:
+  - windows
+  script:
+  - go env -w GOTOOLCHAIN=local GOPROXY=off CGO_ENABLED=0
+  - go build -buildvcs=false ./...
+  - go vet -buildvcs=false ./...
+  - go test -buildvcs=false ./... -count=1
+
 # Release builds for the supported platforms. The code is pure Go with
 # per-OS shims (io_linux.go / io_darwin.go / io_windows.go), so all three
 # GOOS targets cross-compile with CGO_ENABLED=0.

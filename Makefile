@@ -75,6 +75,11 @@ coverage:
 #   make release GOOS=linux GOARCH=arm64 [VERSION=v1.2.3]
 release:
 	@test -n "$(GOOS)" && test -n "$(GOARCH)" || { echo 'usage: make release GOOS=<os> GOARCH=<arch> [VERSION=v1.2.3]' >&2; exit 2; }
+	# tar and gzip are external prerequisites of the tarball step below;
+	# check them before anything is built or renamed so a missing tool
+	# fails loudly instead of leaving zero-byte artifacts behind.
+	@command -v tar >/dev/null || { echo 'error: "make release" requires tar, but it was not found in PATH' >&2; exit 2; }
+	@command -v gzip >/dev/null || { echo 'error: "make release" requires gzip, but it was not found in PATH' >&2; exit 2; }
 	$(GO) build $(VER_FLAGS) -buildvcs=false -o "$(BIN)" $(PKG)
 	mkdir -p dist
 	mv "$(BIN)" dist/

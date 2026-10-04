@@ -24,16 +24,12 @@ func warnFn(log *slog.Logger, ctx context.Context) func(format string, args ...a
 }
 
 // Convert joins the archive's timelapse segments into one moov-first MP4 and
-// writes it to out (stdout or a file). With cfg.Split it additionally writes
-// a video-less copy of the archive (.procreepy.procreate) beside the MP4.
-// It returns the total duration in seconds.
+// writes it to out (stdout or a file). It returns the total duration in
+// seconds. Directory mode goes through ConvertItem instead, which also produces
+// the slimmed project.
 func Convert(ctx context.Context, log *slog.Logger, inputArg string, out Output, cfg Config, chatty bool) (float64, error) {
 	if err := out.prepare(inputArg); err != nil {
 		return 0, err
-	}
-	if cfg.Split && out.Kind != OutFile {
-		return 0, &UsageError{Msg: "--split writes a slimmed .procreepy.procreate, so it needs a " +
-			"file or directory OUTPUT, not stdout"}
 	}
 	in, err := resolveInput(inputArg, cfg)
 	if err != nil {
@@ -55,23 +51,9 @@ func Convert(ctx context.Context, log *slog.Logger, inputArg string, out Output,
 		log.InfoContext(ctx, "segments found", "input", in.label, "count", len(segs))
 	}
 
-	movies := make([]*mp4.Movie, len(segs))
-	for i, seg := range segs {
-		if err := ctxErr(ctx); err != nil {
-			return 0, err
-		}
-		m, err := arch.ParseSegment(seg.Name)
-		if err != nil {
-			return 0, err
-		}
-		if !m.HasVideo() {
-			return 0, &procreate.BadSegmentError{Msg: "segment " + seg.Name + " has no video stream"}
-		}
-		if len(m.Mdat) != 1 {
-			return 0, fmt.Errorf("%w: segment %s has %d mdat boxes (want 1)",
-				procreate.ErrBadSegment, seg.Name, len(m.Mdat))
-		}
-		movies[i] = m
+	movies, err := parseSegments(ctx, arch, segs)
+	if err != nil {
+		return 0, err
 	}
 	if err := checkCompatibility(segs, movies); err != nil {
 		return 0, err
@@ -93,23 +75,14 @@ func Convert(ctx context.Context, log *slog.Logger, inputArg string, out Output,
 	if err != nil {
 		return 0, err
 	}
-	if cfg.Split {
-		slim := slimPath(out.Path)
-		removed, removedBytes, err := procreate.SplitTimelapse(in.path, slim)
-		if err != nil {
-			return 0, &WriteError{Msg: "cannot write slimmed archive " + slim + ": " + strerror(err)}
-		}
-		log.InfoContext(ctx, "slimmed archive written", "path", slim, "removed_files", removed,
-			"video_size", humanBytes(removedBytes))
-	}
 	if chatty {
 		log.InfoContext(ctx, "conversion completed", "output", destTxt, "duration_s", mg.DurationSeconds())
 	}
 	return mg.DurationSeconds(), nil
 }
 
-// humanBytes renders a byte count like "3.4 MiB" (one decimal below 100).
-func humanBytes(n int64) string {
+// HumanBytes renders a byte count like "3.4 MiB" (one decimal below 100).
+func HumanBytes(n int64) string {
 	const unit = 1024
 	if n < unit {
 		return fmt.Sprintf("%d B", n)
@@ -210,13 +183,18 @@ func writeOut(ctx context.Context, arch *procreate.Archive, segs []procreate.Seg
 		if err != nil {
 			return "", &WriteError{Msg: "cannot write " + out.Path + ": " + strerror(err)}
 		}
-		_, err = emit(ctx, arch, segs, mg, f)
+		n, err := emit(ctx, arch, segs, mg, f)
 		if cerr := f.Close(); err == nil {
 			err = cerr
 		}
 		if err != nil {
 			os.Remove(partial)
 			return "", classifyWrite(ctx, err)
+		}
+		// The disk must hold exactly what the writer reported before the rename.
+		if err := verifyWritten(partial, n); err != nil {
+			os.Remove(partial)
+			return "", &WriteError{Msg: "cannot write " + out.Path + ": " + err.Error()}
 		}
 		if err := os.Rename(partial, out.Path); err != nil {
 			os.Remove(partial)

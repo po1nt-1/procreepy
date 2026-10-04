@@ -16,8 +16,11 @@ video/segments/segment-2.mp4
 Utilitas ini mengambil tepat berkas-berkas tersebut: mengurutkannya secara
 **numerik** (`segment-9` sebelum `segment-10`), menganalisis struktur MP4 setiap
 segmen, lalu menyusunnya kembali menjadi satu MP4 moov-first dengan frame yang
-disalur-salin apa adanya. Utilitas tidak pernah membuka `Document.archive`,
-layer, atau chunk raster (`*.lz4`).
+disalur-salin apa adanya. Dalam mode batch, ia juga menulis salinan proyek
+yang bisa diimpor kembali tanpa timelapse untuk setiap karya yang
+dikonversi, serta — dengan `--psd` — sebuah PSD Photoshop berlayer. Jalur
+timelapse tidak pernah membuka `Document.archive`, layer, atau chunk raster
+(`*.lz4`); hanya `--psd` yang melakukannya.
 
 ## Persyaratan
 
@@ -29,7 +32,11 @@ make build      # kompilasi semuanya dan hasilkan ./procreepy yang dapat dijalan
 make check      # gofmt + build + vet + seluruh test suite
 ```
 
-`make build` menyematkan `dev-<commit>` ke binary sehingga `procreepy --version` menunjukkan asal commit-nya (tarball rilis menggunakan tag sebagai gantinya). Tanpa `make`, padanan langsungnya adalah `go build ./... && go build -o procreepy ./cmd/procreepy` (binary tersebut melaporkan `dev`, atau `dev-<commit>` bila dibangun di dalam git checkout).
+`make build` menyematkan `dev-<short sha>` (di luar checkout Git: `dev-nogit`)
+ke binary sehingga `procreepy --version` menunjukkan asal commit-nya (tarball
+rilis menggunakan tag sebagai gantinya). Tanpa `make`, padanan langsungnya
+adalah `go build ./... && go build -o procreepy ./cmd/procreepy` (binary
+tersebut melaporkan `dev`, atau `dev-<commit>` bila stamping VCS tersedia).
 
 ### Membangun untuk sistem operasi lain
 
@@ -45,7 +52,7 @@ Proyek ini murni Go dan dapat di-cross-compile dengan bersih untuk semua target 
 | macOS Intel | `make release GOOS=darwin GOARCH=amd64` |
 | macOS Apple Silicon (M1–M5) | `make release GOOS=darwin GOARCH=arm64` |
 Setiap target menghasilkan `dist/procreepy-<version>-<os>-<arch>.tar.gz` yang ternormalisasi dan mencetak SHA-256-nya; `make cross` membangun seluruh matriks sekaligus, sedangkan `make repro` membuktikan bahwa build dapat direproduksi bit demi bit. Padanan langsung untuk satu target adalah `GOOS=… GOARCH=… go build -o procreepy[.exe] ./cmd/procreepy`.
-Semua build bersifat statis (tanpa cgo): binary Linux berjalan pada distro apa pun terlepas dari versi glibc. Pipeline CI (GitLab dan GitHub) membangun target yang sama pada setiap commit; job `dist` menerbitkan tarball beserta manifest `SHA256SUMS`, dan job `repro:*` membuktikan binary dapat direproduksi bit demi bit.
+Semua build bersifat statis (tanpa cgo): binary Linux berjalan pada distro apa pun terlepas dari versi glibc. Pipeline CI (GitLab dan GitHub) membangun target yang sama pada setiap commit dan, karena Windows adalah platform utama, menjalankan seluruh test suite secara natif di Windows; job `dist` menerbitkan tarball beserta manifest `SHA256SUMS`, dan job `repro:*` membuktikan binary dapat direproduksi bit demi bit.
 
 - Linux/macOS: tidak ada langkah instalasi, jalankan binary secara langsung.
 - Windows: binary tidak ditandatangani, jadi SmartScreen mungkin menampilkan “Protected your PC” — pilih **More info → Run anyway**.
@@ -60,76 +67,121 @@ procreepy artwork.procreate > artwork.mp4
 cat artwork.procreate | procreepy - > artwork.mp4
 procreepy --list artwork.procreate
 procreepy --verify artwork.procreate
-procreepy --split artwork.procreate artwork.mp4
 ```
 Keempat kombinasi `INPUT`/`OUTPUT` didukung: `FILE OUTPUT`, `FILE -`, `- OUTPUT`,
 `- -`. Jika `OUTPUT` dihilangkan, tujuannya adalah stdout. Jika `OUTPUT` adalah
 direktori yang sudah ada, video ditempatkan di sana dengan nama aslinya
 (`procreepy art.procreate videos/` → `videos/art.mp4`).
 
-### Mode batch: folder berisi `.procreate` → folder berisi video
+### Mode batch: folder berisi `.procreate` → folder berisi video dan proyek
 
-Skenarionya: `input/` penuh dengan berkas `.procreate`, dan video ingin
-ditempatkan di `output/timelaps/`:
+Skenarionya: `input/` penuh dengan berkas `.procreate`, dan hasilnya ingin
+ditempatkan di `output/`:
 
 ```bash
 procreepy input/
 ```
 
+Setiap karya yang dikonversi menghasilkan sepasang — timelapse dan proyek yang
+bisa diimpor kembali tanpanya:
+
 ```text
-input/                             output/timelaps/
-├── Portrait of a Cat.procreate →  ├── Portrait of a Cat.mp4
-├── Landscape v2.procreate      →  ├── Landscape v2.mp4
-└── No Timelapse.procreate            └── (dilewati, dengan peringatan)
+input/                               output/
+├── Portrait of a Cat.procreate  →   ├── timelapses/Portrait of a Cat.mp4
+│                                    ├── projects/Portrait of a Cat.procreepy.procreate
+├── Landscape v2.procreate       →   ├── timelapses/Landscape v2.mp4
+│                                    └── projects/Landscape v2.procreepy.procreate
+└── No Timelapse.procreate              (dilewati, dengan peringatan — tidak ada yang ditulis)
 ```
-- **Nama**: `<nama asli tanpa .procreate>.mp4`. Spasi, karakter Sirilik, dan
-  karakter khusus dipertahankan apa adanya.
-- **Folder keluaran**: secara default `output/timelaps/` relatif terhadap
-  direktori saat ini, dan dibuat otomatis. Folder lain dapat diberikan sebagai
-  argumen kedua: `procreepy input/ ~/Videos/procreate`.
-- **Menjalankan ulang aman**: video yang sudah ada akan dilewati. Untuk membangun
-  ulang semuanya: `--force` (`-f`).
-- **`-r`** juga menelusuri subfolder; struktur subfolder dicerminkan pada hasil
-  (`input/2025/Cat.procreate` → `output/timelaps/2025/Cat.mp4`), sehingga nama
-  yang sama di folder berbeda tidak bertabrakan.
-- **Satu berkas yang rusak tidak menghentikan yang lain.** Berkas tanpa timelapse
-  (perekaman dimatikan) adalah peringatan, bukan kesalahan. Berkas korup adalah
-  kesalahan: muncul dalam ringkasan akhir, dan kode keluar menjadi `1`.
+- **Nama**: `<nama asli tanpa .procreate>`, dengan `.mp4` atau
+  `.procreepy.procreate` ditambahkan. Spasi, karakter Sirilik, dan karakter
+  khusus dipertahankan apa adanya; pada sistem berkas yang tidak membedakan
+  huruf besar/kecil, nama yang hanya berbeda hurufnya mendapat awalan
+  belakang `-2`, `-3`, …
+- **Folder keluaran**: secara default `output/` relatif terhadap direktori
+  saat ini, dan dibuat otomatis. Folder lain dapat diberikan sebagai argumen
+  kedua: `procreepy input/ ~/Videos/procreate`.
+- **Proyek ramping**: `projects/NAME.procreepy.procreate` adalah arsip yang
+  sama tanpa anggota `video/segments/segment-N.mp4`; semua anggota lain
+  dibawa byte demi byte (urutan, metode kompresi, dan timestamp). Proyek
+  menyimpan waktu modifikasi sumbernya, sehingga impor ulang ke Procreate
+  tidak mengacak galeri.
+- **Menjalankan ulang aman**: masukan yang timelapse dan proyeknya sudah ada
+  akan dilewati; pasangan setengah jadi dibangun ulang secara keseluruhan.
+  Untuk membangun ulang semuanya: `--force` (`-f`).
+- **`-r`** juga menelusuri subfolder; struktur mereka direplikasi di kedua
+  pohon, sehingga nama yang sama di folder berbeda tidak bertabrakan.
+- **Satu berkas yang rusak tidak menghentikan yang lain.** Berkas tanpa
+  timelapse (perekaman dimatikan) adalah peringatan, bukan kesalahan: tidak
+  ada yang ditulis untuknya. Berkas korup adalah kesalahan: muncul dalam
+  ringkasan akhir, dan kode keluar menjadi `1`.
+- **Himpunan atomik**: keluaran dari satu masukan (timelapse + proyek, dan
+  PSD-nya dengan `--psd`) ditulis ke berkas sementara dan diterbitkan
+  bersama-sama — semuanya atau tidak sama sekali. Eksekusi yang gagal tidak
+  pernah meninggalkan video yatim di samping proyek yang hilang.
 - Berkas tersembunyi (`._Foo.procreate`, yang ditinggalkan macOS saat menyalin)
   diabaikan.
 - Berkas asli tidak pernah diubah.
-Contoh keluaran (semuanya ke stderr):
+
+Contoh keluaran (semuanya ke stderr; eksekusi berakhir dengan kode keluar
+`1` karena berkas yang korup):
 
 ```text
-level=INFO msg="batch conversion started" files=4 input=input output=output/timelaps/
+level=INFO msg="batch conversion started" files=4 input=input/ timelapses=output/timelapses/ projects=output/projects/
 level=ERROR msg="file conversion failed" input="input/Corrupt file.procreate" err="input is not a valid ZIP archive: input/Corrupt file.procreate (not a .procreate file, or truncated/corrupted)"
-level=INFO msg=converted input="input/Landscape v2.procreate" output="output/timelaps/Landscape v2.mp4"
+level=INFO msg=converted input="input/Landscape v2.procreate" timelapse="output/timelapses/Landscape v2.mp4" project="output/projects/Landscape v2.procreepy.procreate" removed_segments=17 video_size="6.7 MiB"
 level=WARN msg="no timelapse video inside, skipped" input="input/No Timelapse.procreate"
-level=INFO msg=converted input="input/Portrait of a Cat.procreate" output="output/timelaps/Portrait of a Cat.mp4"
+level=INFO msg=converted input="input/Portrait of a Cat.procreate" timelapse="output/timelapses/Portrait of a Cat.mp4" project="output/projects/Portrait of a Cat.procreepy.procreate" removed_segments=18 video_size="4.1 MiB"
 level=INFO msg="batch completed" converted=2 existed=0 no_video=1 failed=1
 ```
-`--list` dan `--verify` juga menerima direktori dan menelusuri semua berkas di dalamnya.
 
-### Pemisahan: video + proyek ramping (`--split`)
-
-Idenya: timelapse memakan lebih banyak ruang daripada gambar itu sendiri —
-misalnya, saat membuat cadangan ke iPad, mungkin berguna untuk menyimpannya
-terpisah. `--split` menulis, di samping setiap `MP4` yang selesai, salinan proyek
-ramping **tanpa** apa pun di bawah `video/`:
-
-```bash
-procreepy --split artwork.procreate artwork.mp4
-```
+`removed_segments` adalah jumlah berkas segmen yang dikeluarkan dari proyek
+ramping, dan `video_size` adalah ukuran total (terkompresi) mereka di dalam
+arsip. Menjalankan perintah yang sama sekali lagi melaporkan, untuk setiap
+pasangan yang sudah ada:
 
 ```text
-artwork.procreate  →  artwork.mp4                    (timelapse, lossless)
-                     →  artwork.procreepy.procreate  (proyek yang sama, tanpa video/)
+level=INFO msg="skipped, outputs already exist (use --force to overwrite)" input="input/Landscape v2.procreate" timelapse="output/timelapses/Landscape v2.mp4" project="output/projects/Landscape v2.procreepy.procreate"
 ```
-Dalam mode batch, sama: di samping setiap `X.mp4` akan muncul
-`X.procreepy.procreate`. Semua anggota arsip lainnya (layer, `Info.plist`,
-pratinjau) dibawa byte demi byte: urutan, metode kompresi, dan timestamp
-dipertahankan. `.procreate` asli tidak diubah; salinan ramping tidak dapat
-dituliskan ke stdout, jadi `--split` memerlukan `OUTPUT` berupa berkas.
+
+`--list` dan `--verify` juga menerima direktori dan menelusuri semua berkas di dalamnya.
+
+### Ekspor PSD (`--psd`)
+
+```bash
+procreepy --psd input/ out/
+```
+
+Hanya masukan direktori. Di samping setiap pasangan yang dikonversi,
+`out/psd/NAME.psd` ditulis, diterbitkan secara atomik bersama sisa himpunan:
+
+```text
+level=INFO msg="psd exported" input="input/Portrait of a Cat.procreate" psd="out-psd/psd/Portrait of a Cat.psd" layers=3
+```
+
+Apa yang ada di dalam PSD:
+
+- pohon layer (grup, urutan), nama layer (Unicode), visibilitas,
+  opasitas, mode blending, batas, dan status penguncian;
+- piksel RGBA 8-bit untuk setiap layer, dikompresikan dengan PackBits;
+- DPI dan profil ICC yang tertanam;
+- komposit gabungan yang diambil apa adanya dari render ratakan milik
+  Procreate (ketika itu hilang atau rusak, layer yang terlihat dikomposisi
+  dalam mode Normal sebagai pendekatan).
+
+Apa yang tidak ada — PSD adalah ekspor, bukan putaran balik tanpa kerugian:
+
+- mask layer dan semantik clip tepat ke layer di bawahnya tidak bertahan;
+- layer teks mempertahankan pikselnya, tetapi bukan data teksnya yang
+  dapat disunting;
+- alpha lurus (tidak pra-dikalikan) tidak dapat dipulihkan secara tepat:
+  Procreate menyimpan ubin 8-bit yang pra-dikalikan, sehingga warna pinggir
+  di tepi layer dapat sedikit berbeda;
+- kanvas yang lebih lebar atau tinggi dari 30000 piksel ditolak mentah-mentah
+  (batas format PSD, berlawanan dengan PSB).
+
+Berkas `.procreate` tetap menjadi salinan induk; anggaplah PSD sebagai
+potret untuk Photoshop dan importir lainnya.
 
 ### Diagnostik
 
@@ -138,13 +190,15 @@ procreepy --list artwork.procreate
 ```
 
 ```text
-input: artwork.procreate
-segments: 12
+input: input/Portrait of a Cat.procreate
+segments: 18
 
 1  video/segments/segment-1.mp4
 2  video/segments/segment-2.mp4
+3  video/segments/segment-3.mp4
 ...
-12 video/segments/segment-12.mp4
+17 video/segments/segment-17.mp4
+18 video/segments/segment-18.mp4
 ```
 
 ```bash
@@ -159,13 +213,17 @@ digabungkan tanpa encode ulang. **Tidak ada video keluaran yang dibuat.**
 
 | Opsi | Fungsi |
 |---|---|
-| `-r`, `--recursive` | input direktori: telusuri juga subfolder |
-| `-f`, `--force` | input direktori: timpa video yang sudah ada |
+| `-h`, `--help` | tampilkan bantuan dan keluar |
+| `--list` | urutkan segmen sesuai urutan pemutaran dan keluar |
+| `--verify` | periksa setiap segmen; tidak membuat video keluaran |
+| `-r`, `--recursive` | masukan direktori: telusuri juga subfolder |
+| `-f`, `--force` | masukan direktori: timpa hasil yang sudah ada |
 | `--strict` | perlakukan nomor segmen yang hilang sebagai kesalahan (default: peringatan) |
-| `--reencode` | diterima untuk kompatibilitas dengan skrip lama; tidak ada encode ulang, selalu stream copy |
-| `--split` | tulis `X.procreepy.procreate` di samping setiap `MP4` — proyek tanpa `video/` |
-| `--tmpdir DIR` | tempat menyimpan file sementara |
+| `--psd` | masukan direktori: ekspor pula PSD berlayer untuk setiap karya |
+| `--tmpdir DIR` | tempat menyimpan file sementara (default: `$TMPDIR`, lalu `/var/tmp`, lalu direktori sementara sistem) |
 | `-q`, `--quiet` | hanya cetak peringatan dan kesalahan |
+| `--version` | tampilkan nomor versi dan keluar |
+| `--` | hentikan pengolahan opsi; perlakukan sisanya sebagai argumen posisional |
 
 ## Cara kerja
 
@@ -183,7 +241,11 @@ digabungkan tanpa encode ulang. **Tidak ada video keluaran yang dibuat.**
    ketidakcocokan menjadi kesalahan dengan pesan yang jelas, bukan kejutan di video akhir.
 6. MP4 moov-first dirakit: `ftyp`, `moov` (semua track, diambil dari segmen), lalu
    `mdat` demi `mdat` sesuai urutan pemutaran.
-7. Berkas sementara (jika ada) selalu dihapus — saat berhasil, gagal, Ctrl+C,
+7. Apa pun yang dijanjikan eksekusi (MP4, proyek ramping, PSD) disiapkan di
+   berkas sementara dan diterbitkan sebagai satu himpunan hanya setelah yang
+   terakhir berhasil; dalam mode batch, masukan berikutnya dicoba apa pun
+   hasilnya.
+8. Berkas sementara (jika ada) selalu dihapus — saat berhasil, gagal, Ctrl+C,
    maupun SIGTERM.
 
 ### Menulis ke berkas dan ke stdout
@@ -196,11 +258,28 @@ hasil yang sama dengan `procreepy artwork.procreate artwork.mp4` secara eksplisi
   * **Output ke berkas** bersifat atomik: `.partial` dibuat di samping target dan
     baru di-rename setelah berhasil. Eksekusi yang gagal tidak meninggalkan sisa
     dan tidak pernah merusak berkas yang sudah ada.
+  * Kekhususan Windows: penamaan ulang akhir memakai `MoveFileEx` dengan
+    penggantian target yang sudah ada, sehingga `--force` dan regenerasi set
+    yang tidak lengkap menggantikan keluaran yang ada di tempatnya, sama
+    seperti di Unix. Secara ketat ia tidak se-atomik rename POSIX; perbedaan
+    praktis hanya tampak dalam satu kasus — jika berkas target masih dibuka
+    oleh program lain (misalnya pemutar media yang masih memegang MP4
+    sebelumnya), penamaan ulang ditolak dengan pesan error yang mudah dibaca
+    `Access is denied`, berkas lama tetap utuh, dan eksekusi ulang setelah
+    program itu ditutup akan berhasil.
   * stdout tidak pernah tercampur dengan teks. Semua baris log
     (`level=INFO`/`WARN`/`ERROR`, satu record terstruktur key=value per baris)
     dikirim ke stderr. Satu-satunya pengecualian adalah laporan
     `--list`/`--verify`, di mana stdout adalah hasilnya. Jika stdout adalah terminal,
     utilitas menolak menuliskan MP4 biner ke sana.
+
+### Warna konsol
+
+Ketika stderr adalah terminal interaktif dan variabel lingkungan `NO_COLOR`
+tidak ditetapkan, token tingkat `WARN` dan `ERROR` diberi warna (kuning dan
+merah tebal); `INFO` tetap polos. Pipe, redirect, CI, dan uji memelihara
+format plain byte demi byte, sehingga tidak ada yang terskrip yang berubah.
+Secara sadar tidak ada flag `--color`.
 
 ### Berkas sementara dan Fedora
 
@@ -217,7 +296,7 @@ berbasis disk yang lebih besar), bukan sekadar "No space left".
 |---|---|
 | 0 | sukses |
 | 1 | kesalahan tak terduga; dalam mode batch — setidaknya satu berkas gagal |
-| 2 | argumen salah; keluaran akan menimpa masukan; stdout adalah terminal |
+| 2 | argumen salah (termasuk `--psd` dengan satu berkas, atau direktori hasil yang diarahkan ke stdout); OUTPUT adalah berkas yang sama dengan INPUT; stdout adalah terminal |
 | 3 | masukan tidak ditemukan, kosong, atau bukan ZIP |
 | 4 | tidak ada `video/segments` di arsip (timelapse tidak direkam) |
 | 5 | segmen korup; penomoran ambigu atau hilang (`--strict`) |
@@ -244,10 +323,12 @@ seluruh mode batch.
 
 ## Yang sengaja tidak dilakukan utilitas ini
 
-Utilitas tidak mengurai `Document.archive` (NSKeyedArchive), tidak menyentuh
-`*.lz4`, tidak memulihkan layer, dan tidak merender gambar. Jika timelapse tidak
-direkam dalam berkas, utilitas ini tidak dapat memulihkannya dari riwayat gambar.
-Catatan: `lz4 -t` pada `.lz4` yang diambil dari `.procreate` bukan pemeriksaan
+Jalur timelapse tidak mengurai `Document.archive` (NSKeyedArchive), tidak
+menyentuh `*.lz4`, tidak memulihkan layer, dan tidak merender gambar; `--psd`
+memang mengurai dokumen — untuk ekspor yang dijelaskan di atas, dengan
+catatan keakuratan dari bagian tersebut. Jika timelapse tidak direkam dalam
+berkas, utilitas ini tidak dapat memulihkannya dari riwayat gambar. Catatan:
+`lz4 -t` pada `.lz4` yang diambil dari `.procreate` bukan pemeriksaan
 integritas — itu bukan frame LZ4 mandiri.
 
 ## Referensi format

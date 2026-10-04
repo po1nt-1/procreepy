@@ -70,16 +70,6 @@ func deriveName(input string) string {
 	return b[:i] + ".mp4"
 }
 
-// slimPath maps an MP4 output path to the slimmed archive next to it:
-// "artwork.mp4" -> "artwork.procreepy.procreate".
-func slimPath(mp4Path string) string {
-	b := filepath.Base(mp4Path)
-	if i := strings.LastIndex(b, "."); i > 0 {
-		b = b[:i]
-	}
-	return filepath.Join(filepath.Dir(mp4Path), b+".procreepy.procreate")
-}
-
 func isDir(p string) bool {
 	st, err := os.Stat(p)
 	return err == nil && st.IsDir()

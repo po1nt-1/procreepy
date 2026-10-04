@@ -1,12 +1,12 @@
-// Package batch turns a directory of .procreate files into a directory of
-// MP4s. One broken file never stops the run: failures are collected and
-// reported at the end, and the exit code is non-zero if any file failed.
+// Package batch turns a directory of .procreate files into separate trees of
+// timelapses, re-importable projects and (optionally) PSD exports. One broken
+// file never stops the run: failures are collected and reported at the end, and
+// the exit code is non-zero if any file failed.
 package batch
 
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -18,17 +18,11 @@ import (
 	"procreepy/internal/video"
 )
 
-// DefaultOutputDir is where batch mode writes when no OUTPUT is given.
-const DefaultOutputDir = "output" + string(os.PathSeparator) + "timelaps"
-
-// Pair maps one input archive to its output file.
-type Pair struct{ Src, Dst string }
-
 func isProcreate(name string) bool {
 	// Dot-files are skipped on purpose: macOS leaves "._Foo.procreate"
 	// resource forks behind when files are copied around, and they are not
 	// ZIP archives.
-	return !strings.HasPrefix(name, ".") && strings.HasSuffix(strings.ToLower(name), ".procreate")
+	return !strings.HasPrefix(name, ".") && strings.HasSuffix(strings.ToLower(name), procreateExt)
 }
 
 // Discover lists the candidate archives below root. Without recursive only
@@ -87,60 +81,17 @@ func Discover(root string, recursive bool) ([]string, error) {
 	return found, nil
 }
 
-func deriveName(input string) string {
-	b := filepath.Base(input)
-	i := strings.LastIndex(b, ".")
-	if i <= 0 {
-		return b + ".mp4"
-	}
-	return b[:i] + ".mp4"
-}
-
-func unique(dst string, used map[string]bool) string {
-	cand, n := dst, 2
-	base := filepath.Base(dst)
-	i := strings.LastIndex(base, ".")
-	stem, suf := base, ""
-	if i > 0 {
-		stem, suf = base[:i], base[i:]
-	}
-	for used[cand] {
-		cand = filepath.Join(filepath.Dir(dst), fmt.Sprintf("%s-%d%s", stem, n, suf))
-		n++
-	}
-	return cand
-}
-
-// PlanOutputs maps every input to its output path. Sub-directories are
-// mirrored with recursive, and a name clash (a.procreate vs a.PROCREATE)
-// gets a -2, -3 ... suffix.
-func PlanOutputs(files []string, root, outDir string, recursive bool) []Pair {
-	used := make(map[string]bool, len(files))
-	plan := make([]Pair, 0, len(files))
-	for _, src := range files {
-		dst := filepath.Join(outDir, deriveName(src))
-		if recursive {
-			if rel, err := filepath.Rel(root, src); err == nil {
-				dst = filepath.Join(outDir, filepath.Dir(rel), deriveName(src))
-			}
-		}
-		dst = unique(dst, used)
-		used[dst] = true
-		plan = append(plan, Pair{Src: src, Dst: dst})
-	}
-	return plan
-}
-
-// ConvertDirectory joins every .procreate in inDir (optionally recursive)
-// into MP4s under outDir (DefaultOutputDir when outputArg is empty). It
+// ConvertDirectory converts every .procreate in inDir (optionally recursive).
+// Each input yields an MP4 under OUTPUT/timelapses, a video-less project under
+// OUTPUT/projects and, with cfg.PSD, a layered export under OUTPUT/psd. It
 // returns the exit code (0, or 1 when any file failed) and an error for
-// run-aborting problems (bad command line, unwritable output dir).
+// run-aborting problems (bad command line, unwritable output root).
 func ConvertDirectory(ctx context.Context, log *slog.Logger, inDir, outputArg string,
 	cfg video.Config, force, recursive bool) (int, error) {
 
 	if outputArg == "-" {
-		return 0, &video.UsageError{Msg: "cannot write several videos to stdout; give an output " +
-			"directory (default: " + DefaultOutputDir + "/)"}
+		return 0, &video.UsageError{Msg: "cannot write a directory of results to stdout; give an " +
+			"output directory (default: " + DefaultOutputDir + "/)"}
 	}
 	outDir := outputArg
 	if outDir == "" {
@@ -148,6 +99,9 @@ func ConvertDirectory(ctx context.Context, log *slog.Logger, inDir, outputArg st
 	}
 	if st, err := os.Stat(outDir); err == nil && !st.IsDir() {
 		return 0, &video.UsageError{Msg: "output path exists and is not a directory: " + outDir}
+	}
+	if err := checkOutputNesting(inDir, outDir, recursive); err != nil {
+		return 0, &video.UsageError{Msg: err.Error()}
 	}
 	files, err := Discover(inDir, recursive)
 	if err != nil {
@@ -160,47 +114,64 @@ func ConvertDirectory(ctx context.Context, log *slog.Logger, inDir, outputArg st
 		}
 		return 0, &procreate.InputError{Msg: "no .procreate files found in " + inDir + hint}
 	}
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
-		return 0, &video.WriteError{Msg: "cannot create " + outDir + ": " + strerror(err)}
+	roots := NewRoots(outDir, cfg.PSD)
+	for _, d := range []string{roots.Timelapses, roots.Projects, roots.PSD} {
+		if d == "" {
+			continue
+		}
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			return 0, &video.WriteError{Msg: "cannot create " + d + ": " + strerror(err)}
+		}
 	}
 
-	plan := PlanOutputs(files, inDir, outDir, recursive)
-	log.InfoContext(ctx, "batch conversion started", "files", len(plan), "input", inDir, "output", outDir+"/")
+	items := Plan(files, inDir, roots, recursive)
+	log.InfoContext(ctx, "batch conversion started", "files", len(items), "input", withSlash(inDir),
+		"timelapses", withSlash(roots.Timelapses), "projects", withSlash(roots.Projects))
 
-	converted, existed, noVideo := 0, 0, 0
-	failed := 0
-	for _, p := range plan {
+	converted, existed, noVideo, failed := 0, 0, 0, 0
+	for _, it := range items {
 		if cerr := ctx.Err(); cerr != nil {
 			return 0, cerr
 		}
-		if _, err := os.Stat(p.Dst); err == nil && !force {
-			log.InfoContext(ctx, "skipped, output already exists (use --force to overwrite)",
-				"input", p.Src, "output", p.Dst)
-			existed++
-			continue
+		if !force {
+			switch outputState(it.Targets) {
+			case allPresent:
+				log.InfoContext(ctx, "skipped, outputs already exist (use --force to overwrite)",
+					"input", it.Src, "timelapse", it.Targets.Timelapse, "project", it.Targets.Project)
+				existed++
+				continue
+			case somePresent:
+				// A half-finished earlier run: regenerating the whole set is the
+				// only way back to a consistent pair, so say so rather than
+				// skipping an input whose project is missing.
+				log.WarnContext(ctx, "outputs are incomplete, regenerating the whole set",
+					"input", it.Src)
+			}
 		}
-		if err := os.MkdirAll(filepath.Dir(p.Dst), 0o755); err != nil {
-			log.ErrorContext(ctx, "cannot create output directory",
-				"input", p.Src, "output_dir", filepath.Dir(p.Dst), "err", strerror(err))
-			failed++
-			continue
-		}
-		_, err := video.Convert(ctx, log, p.Src,
-			video.Output{Kind: video.OutFile, Path: p.Dst, Name: p.Dst}, cfg, false)
+		res, err := video.ConvertItem(ctx, log, it.Src, video.Targets(it.Targets), cfg)
 		if err != nil {
 			if cerr := ctx.Err(); cerr != nil {
 				return 0, cerr
 			}
+			if errors.Is(err, context.Canceled) {
+				return 0, err
+			}
 			if errors.Is(err, procreate.ErrNoSegments) {
-				log.WarnContext(ctx, "no timelapse video inside, skipped", "input", p.Src)
+				log.WarnContext(ctx, "no timelapse video inside, skipped", "input", it.Src)
 				noVideo++
 			} else {
-				log.ErrorContext(ctx, "file conversion failed", "input", p.Src, "err", err)
+				log.ErrorContext(ctx, "file conversion failed", "input", it.Src, "err", err)
 				failed++
 			}
 			continue
 		}
-		log.InfoContext(ctx, "converted", "input", p.Src, "output", p.Dst)
+		log.InfoContext(ctx, "converted", "input", it.Src, "timelapse", it.Targets.Timelapse,
+			"project", it.Targets.Project, "removed_segments", res.Removed,
+			"video_size", video.HumanBytes(res.RemovedBytes))
+		if res.PSDWritten {
+			log.InfoContext(ctx, "psd exported", "input", it.Src, "psd", it.Targets.PSD,
+				"layers", res.Layers)
+		}
 		converted++
 	}
 
@@ -210,6 +181,46 @@ func ConvertDirectory(ctx context.Context, log *slog.Logger, inDir, outputArg st
 		return 1, nil
 	}
 	return 0, nil
+}
+
+// presence describes how much of one input's output set is already on disk.
+type presence int
+
+const (
+	nonePresent presence = iota
+	somePresent
+	allPresent
+)
+
+// outputState reports the state of a whole output set rather than of a single
+// file: an input whose MP4 survived but whose project did not is not done, and
+// treating it as done is how a half-converted directory stays half-converted.
+func outputState(t Targets) presence {
+	want := t.all()
+	have := 0
+	for _, p := range want {
+		if _, err := os.Stat(p); err == nil {
+			have++
+		}
+	}
+	switch have {
+	case 0:
+		return nonePresent
+	case len(want):
+		return allPresent
+	default:
+		return somePresent
+	}
+}
+
+// withSlash renders a directory with a trailing separator, without doubling one
+// the user already typed.
+func withSlash(dir string) string {
+	sep := string(os.PathSeparator)
+	if strings.HasSuffix(dir, sep) || strings.HasSuffix(dir, "/") {
+		return dir
+	}
+	return dir + sep
 }
 
 // DiagnoseDirectory runs --list / --verify (via action) over every

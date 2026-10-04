@@ -81,7 +81,7 @@ func TestHelp(t *testing.T) {
 			"OUTPUT            output.mp4, a directory, or - for stdout",
 			"--list            list the segments in playback order and exit",
 			"--verify          check every segment; create no output video",
-			"--split           write a video-less .procreepy.procreate next to each MP4 (requires an OUTPUT path, not stdout)",
+			"--psd             directory input: also export a layered .psd per artwork",
 			"--tmpdir DIR      where to put temporary files (default: $TMPDIR, else /var/tmp, else the system temp directory)",
 			"-q, --quiet       only print warnings and errors to stderr",
 			"--                stop option parsing; treat the remaining arguments as positional",
@@ -269,58 +269,82 @@ func TestBatchDirectory(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code = %d, want 0 (stderr: %s)", code, errOut)
 	}
-	got := filepath.Join(outDir, "a.mp4")
+	got := filepath.Join(outDir, batch.TimelapseDir, "a.mp4")
 	data, err := os.ReadFile(got)
 	if err != nil {
 		t.Fatal(err)
 	}
 	assertMoovFirst(t, data)
 }
-func TestSplitRejectsStdout(t *testing.T) {
+
+// TestRemovedFlagsRejected: --split and --reencode are gone. Splitting is what
+// directory mode does, and --reencode never re-encoded anything, so both are
+// now ordinary unknown options rather than silent no-ops.
+func TestRemovedFlagsRejected(t *testing.T) {
 	in := goodArchivePath(t)
-	code, _, errOut := runCLI(t, "--split", in)
+	for _, flag := range []string{"--split", "--reencode"} {
+		code, _, errOut := runCLI(t, flag, in)
+		if code != 2 {
+			t.Errorf("%s: code = %d, want 2 (stderr: %s)", flag, code, errOut)
+		}
+		if !strings.Contains(errOut, "unrecognized arguments: "+flag) {
+			t.Errorf("%s: stderr:\n%s", flag, errOut)
+		}
+	}
+}
+
+// TestPSDNeedsDirectory: the PSD tree only exists in directory mode, so asking
+// for it on a single file is a usage error rather than a silently ignored flag.
+func TestPSDNeedsDirectory(t *testing.T) {
+	in := goodArchivePath(t)
+	code, _, errOut := runCLI(t, "--psd", in, filepath.Join(t.TempDir(), "out.mp4"))
 	if code != 2 {
 		t.Fatalf("code = %d, want 2 (stderr: %s)", code, errOut)
 	}
-	if !strings.Contains(errOut, "--split") || !strings.Contains(errOut, "not stdout") {
+	if !strings.Contains(errOut, "--psd needs a directory INPUT") {
 		t.Fatalf("stderr:\n%s", errOut)
 	}
 }
-func TestSplitConflictsWithListVerify(t *testing.T) {
+
+func TestPSDConflictsWithListVerify(t *testing.T) {
 	in := goodArchivePath(t)
-	for _, argv := range [][]string{{"--split", "--list", in}, {"--split", "--verify", in}} {
+	for _, argv := range [][]string{{"--psd", "--list", in}, {"--psd", "--verify", in}} {
 		code, _, errOut := runCLI(t, argv...)
 		if code != 2 {
 			t.Errorf("%v: code = %d, want 2 (stderr: %s)", argv, code, errOut)
 		}
-		if !strings.Contains(errOut, "--split cannot be combined with --list or --verify") {
+		if !strings.Contains(errOut, "--psd cannot be combined with --list or --verify") {
 			t.Errorf("%v: stderr:\n%s", argv, errOut)
 		}
 	}
 }
-func TestSplitEndToEnd(t *testing.T) {
-	in := goodArchivePath(t)
-	dir := t.TempDir()
-	stem := strings.TrimSuffix(filepath.Base(in), filepath.Ext(in))
-	code, _, errOut := runCLI(t, "--split", in, dir)
+
+// TestDirectoryModeWritesBothTrees is the headline contract: one directory in,
+// two trees out, with no flag asking for it.
+func TestDirectoryModeWritesBothTrees(t *testing.T) {
+	inDir := t.TempDir()
+	testkit.Project(2).Write(t, inDir, "a.procreate")
+	outDir := filepath.Join(t.TempDir(), "out")
+
+	code, _, errOut := runCLI(t, inDir, outDir)
 	if code != 0 {
 		t.Fatalf("code = %d, want 0 (stderr: %s)", code, errOut)
 	}
-	mp4 := filepath.Join(dir, stem+".mp4")
-	data, err := os.ReadFile(mp4)
+	data, err := os.ReadFile(filepath.Join(outDir, batch.TimelapseDir, "a.mp4"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	assertMoovFirst(t, data)
-	slim := filepath.Join(dir, stem+".procreepy.procreate")
+
+	slim := filepath.Join(outDir, batch.ProjectDir, "a"+batch.ProjectSuffix)
 	a, err := procreate.Open(slim, slim)
 	if err != nil {
-		t.Fatalf("open slim: %v", err)
+		t.Fatalf("open project: %v", err)
 	}
 	defer a.Close()
 	for _, m := range a.Members() {
-		if strings.HasPrefix(strings.ToLower(m.Name), "video/") {
-			t.Fatalf("video member survived in slim: %s", m.Name)
+		if procreate.IsSegmentName(m.Name) {
+			t.Fatalf("timelapse segment survived in the project: %s", m.Name)
 		}
 	}
 }

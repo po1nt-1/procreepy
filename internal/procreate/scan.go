@@ -13,6 +13,17 @@ const SegmentDir = "video/segments/"
 
 var segmentRE = regexp.MustCompile(`(?i)^video/segments/segment-([0-9]+)\.mp4$`)
 
+// IsSegmentName reports whether an archive member is a timelapse segment.
+//
+// Slimming keys off this exact name shape rather than the whole video/ subtree.
+// Real archives also carry video/active-0.mp4, a zero-length placeholder for the
+// recording Procreate would append to next; it holds no timelapse payload, so
+// dropping everything under video/ would discard a member Procreate expects
+// without saving a single byte.
+func IsSegmentName(name string) bool {
+	return segmentRE.MatchString(name)
+}
+
 // Member is one ZIP archive entry, as seen by the scanner.
 type Member struct {
 	Name  string // member name as stored in the archive

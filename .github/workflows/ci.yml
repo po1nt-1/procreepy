@@ -71,6 +71,28 @@ jobs:
           merged.out
         if-no-files-found: error
 
+  # Windows is the primary user scenario (PLAN §16): mirror of GitLab's
+  # test:windows. Hosted windows-latest always exists, so unlike the GitLab
+  # leg this job never blocks on a missing runner. Same suite as the Linux
+  # test job minus make/fmt-check (host-independent): native vet, build,
+  # and the full test suite, whose e2e part executes the compiled .exe.
+  test-windows:
+    name: test:windows
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - uses: ./.github/actions/tag-guard
+    - uses: actions/setup-go@v5
+      with:
+        go-version: "1.27.1"
+    - name: native test suite
+      run: |
+        go build -buildvcs=false ./...
+        go vet -buildvcs=false ./...
+        go test -buildvcs=false ./... -count=1
+
   # GitHub's native SAST, standing in for the GitLab SAST template.
   sast:
     runs-on: ubuntu-latest
@@ -90,7 +112,7 @@ jobs:
 
   # stage: build (starts after the whole test stage, like GitLab)
   build:
-    needs: [test, sast]
+    needs: [test, sast, test-windows]
     # Zero deps + CGO_ENABLED=0: the whole matrix cross-compiles on one runner.
     runs-on: ubuntu-latest
     container: golang:1.27.1

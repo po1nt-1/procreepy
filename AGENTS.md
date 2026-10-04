@@ -20,7 +20,7 @@ stay valid.
 |---|---|
 | Definition of done | `make check` (fmt check, build, vet, full suite) |
 | Format check | `make fmt-check` (fix with `make fmt`) |
-| Build | `make build` (whole module + `./procreepy` stamped `dev-<sha>`; `procreepy --version` reports the token) |
+| Build | `make build` (whole module + `./procreepy` stamped `dev-<short sha>`, `dev-nogit` outside a Git checkout; `procreepy --version` reports the token) |
 | Vet | `make vet` |
 | Full test suite | `make test` |
 | Cross-compile | `make release GOOS=linux\|windows\|darwin GOARCH=amd64\|arm64\|arm` (linux arm: default GOARM=7); `make cross` for the whole CI matrix |
@@ -57,9 +57,13 @@ exactly once, from the e2e binary), then merges both profiles into
 | `internal/cli` | argparse-compatible flag parsing, dispatch, slog logger, exit codes, help/version (exact text pinned by e2e) |
 | `internal/batch` | directory mode: discovery, plan/collision suffixes, `ConvertDirectory` |
 | `internal/video` | `Convert` orchestration, `--list`/`--verify` reports, I/O (spool, atomic `.partial` write), error types, per-OS shims `io_{linux,darwin,windows}.go` |
-| `internal/procreate` | ZIP open/validate, segment scan (regex, numeric sort, gap/ambiguous/stray detection), `--split` rewrite |
+| `internal/procreate` | ZIP open/validate, segment scan (regex, numeric sort, gap/ambiguous/stray detection), slimmed copy via raw-ZIP pass-through (`WriteSlimmed` on `CreateRaw`/`OpenRaw`, every kept member bit-identical) |
 | `internal/mp4` | custom MP4 box parser/writer: moov-first emit, stream copy, stco/co64 switch at 4 GiB |
+| `internal/procodec` | decodes the two compressed containers Procreate uses for layer tiles: Apple compression-lib LZ4 (`.lz4`) and bare LZO1X-1 (`.chunk`) |
+| `internal/silica` | reads `Document.archive` (Apple binary plist / NSKeyedArchiver) and the layer tiles it references — feeds `--psd` |
+| `internal/psd` | writes 8-bit RGBA PSDs: layer tree, names, visibility/opacity/blend/bounds/locks, PackBits, DPI+ICC, merged composite; fidelity limits documented in the README |
 | `internal/testkit` | builds synthetic MP4 segments and `.procreate` ZIPs for tests — no binary fixtures are committed |
+| `internal/fixture` | regression suite against a real `.procreate` corpus; every test skips unless `PROCREATE_FIXTURE_DIR` or `PROCREATE_FIXTURE_ZIP` is set |
 | `internal/e2e` | golden-output suite: builds the real (instrumented) binary in `TestMain` and compares exit code + stdout + stderr byte-for-byte |
 | `tools/cov2cobertura` | merges coverage profiles into a Cobertura report (GitLab MR diff annotations) |
 | `Makefile` | build entry point: hermetic env + the canonical commands CI runs |
@@ -75,7 +79,11 @@ exactly once, from the e2e binary), then merges both profiles into
 - **Logging = stdlib `log/slog` TextHandler on stderr** (`cli.newLogger`):
   no timestamp (dropped via `ReplaceAttr`, output must stay deterministic),
   `-q` raises the level to Warn. Durations render via `%g` (`6.0` -> `6`);
-  values with spaces/parens are quoted automatically.
+  values with spaces/parens are quoted automatically. On an interactive TTY
+  with `NO_COLOR` unset, a `colorHandler` wrap puts SGR escapes around the
+  `WARN` (yellow) and `ERROR` (bold red) level tokens only; `INFO` stays
+  plain, and non-TTY output (pipes, redirects, CI, tests) is byte-identical
+  plain — there is deliberately no `--color` flag.
   Usage/argparse errors stay on `fmt` (`procreepy: error: ...`, exit 2) —
   they are not log records.
 - **Layering.** Domain packages (`mp4`, `procreate`) never log: they return
@@ -107,8 +115,14 @@ do not hand-roll expected strings:
 - `slogLine(level, msg, kv...)` — one slog record (byte-exact renderer)
 - `chattyBlock(input, count, output, secs)` — single-file verbose trio
 - `gapWarn(missing)`, `strayWarn(member)` — scan warnings
-- `batchStart`, `batchConverted`, `batchSkipped`, `batchNoVideo`,
-  `batchFailed`, `batchDone`, `batchSlimmed` — batch records
+- `batchStart(files, in, tl, proj)`, `batchConverted(src, tl, proj, removed,
+  size)`, `batchSkipped(src, tl, proj)`, `batchIncomplete(src)`,
+  `batchNoVideo(src)`, `batchFailed(src, err)`,
+  `batchDone(conv, existed, noVideo, failed)` — batch records
+- fixture inputs: `segN`, `stdArchiveEntries`, `stdInput`, `stdThree`,
+  `writeArchive`, `writeArchiveCorrupted`, `expectedMP4`
+- output inspection: `readAll`, `eqBytes`, `readZipMembers`,
+  `assertProjectContents`, `sortedNames`, `assertNoPartial`, `humanBytes`
 
 ## Docs
 
@@ -119,11 +133,18 @@ do not hand-roll expected strings:
   left to translators.
 - Sample outputs in docs must be **authentic**: capture them from a real
   `procreepy` binary run, never invent them.
+- Anything worth documenting (behavior, caveats, platform quirks) belongs in
+  `README.md` **and in all translations** — with a high-quality translation
+  matched to the established style and register of each file, not a word-for-word
+  rendering.
 
 ## CI (GitLab `.gitlab-ci.yml` is the structural reference; GitHub
 `.github/workflows/ci.yml` mirrors it job for job)
 
-Stages: test (`make check` + `make coverage` -> Cobertura report, SAST),
+Stages: test (`make check` + `make coverage` -> Cobertura report, SAST, plus
+a native Windows smoke job — build, vet and test with the same hermetic flags;
+GitLab `test:windows` needs a self-hosted runner tagged `windows`, GitHub
+`test-windows` runs on `windows-latest`),
 build (`make release` x matrix: linux amd64/arm64/arm, windows amd64/arm64,
 darwin amd64/arm64; normalized reproducible tarballs), verify (SHA256SUMS
 manifest + `make repro` on glibc vs musl, bit-for-bit proof), release

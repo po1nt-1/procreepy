@@ -117,26 +117,6 @@ func TestDiscoverMissingRoot(t *testing.T) {
 	}
 }
 
-func TestPlanOutputs(t *testing.T) {
-	root := "in"
-	plan := PlanOutputs([]string{"in/a.procreate", "in/sub/b.procreate"}, root, "out", true)
-	if len(plan) != 2 {
-		t.Fatalf("plan = %v", plan)
-	}
-	if plan[0].Dst != "out/a.mp4" || plan[1].Dst != "out/sub/b.mp4" {
-		t.Fatalf("plan = %v", plan)
-	}
-	plan = PlanOutputs([]string{"in/a.procreate"}, root, "out", false)
-	if plan[0].Dst != "out/a.mp4" {
-		t.Fatalf("flat plan = %v", plan)
-	}
-	// Forced duplicate inputs exercise the -2/-3 suffixing.
-	plan = PlanOutputs([]string{"in/a.procreate", "in/a.procreate"}, root, "out", false)
-	if plan[0].Dst != "out/a.mp4" || plan[1].Dst != "out/a-2.mp4" {
-		t.Fatalf("clash plan = %v", plan)
-	}
-}
-
 func TestConvertDirectory(t *testing.T) {
 	root := t.TempDir()
 	writeTree(t, root, map[string][]byte{
@@ -170,9 +150,13 @@ func TestConvertDirectory(t *testing.T) {
 	if strings.Contains(logged, "already exists") {
 		t.Errorf("first run must not skip anything:\n%s", logged)
 	}
-	okOut := filepath.Join(outDir, "ok.mp4")
+	okOut := filepath.Join(outDir, TimelapseDir, "ok.mp4")
 	if _, err := os.Stat(okOut); err != nil {
 		t.Fatalf("expected %s: %v", okOut, err)
+	}
+	okProject := filepath.Join(outDir, ProjectDir, "ok"+ProjectSuffix)
+	if _, err := os.Stat(okProject); err != nil {
+		t.Fatalf("expected %s: %v", okProject, err)
 	}
 	f, err := os.Open(okOut)
 	if err != nil {
@@ -195,20 +179,28 @@ func TestConvertDirectory(t *testing.T) {
 	if string(head[ftypSz+4:ftypSz+8]) != "moov" {
 		t.Fatalf("output is not moov-first: % x", head[:])
 	}
-	if _, err := os.Stat(filepath.Join(outDir, "empty.mp4")); err == nil {
-		t.Error("empty.mp4 should not exist")
+	// A file with no timelapse and a broken file both produce nothing at all,
+	// in either tree.
+	for _, stem := range []string{"empty", "bad"} {
+		for _, p := range []string{
+			filepath.Join(outDir, TimelapseDir, stem+".mp4"),
+			filepath.Join(outDir, ProjectDir, stem+ProjectSuffix),
+		} {
+			if _, err := os.Stat(p); err == nil {
+				t.Errorf("%s should not exist", p)
+			}
+		}
 	}
-	if _, err := os.Stat(filepath.Join(outDir, "bad.mp4")); err == nil {
-		t.Error("bad.mp4 should not exist")
-	}
+	// No scratch files may survive a run that had both successes and failures.
+	assertNoPartials(t, outDir)
 
-	// Second run: ok.mp4 already exists -> skipped without --force.
+	// Second run: the whole output set already exists -> skipped without --force.
 	logBuf.Reset()
 	code, err = ConvertDirectory(context.Background(), log, root, outDir, video.Config{}, false, false)
 	if err != nil || code != 1 {
 		t.Fatalf("rerun: code=%d err=%v\n%s", code, err, logBuf.String())
 	}
-	if !strings.Contains(logBuf.String(), "already exists (use --force to overwrite)") {
+	if !strings.Contains(logBuf.String(), "already exist (use --force to overwrite)") {
 		t.Errorf("rerun log missing skip message:\n%s", logBuf.String())
 	}
 	if !strings.Contains(logBuf.String(), `existed=1`) {
@@ -238,7 +230,7 @@ func TestConvertDirectoryErrors(t *testing.T) {
 		if !errors.As(err, &ue) {
 			t.Fatalf("err = %T %v", err, err)
 		}
-		if !strings.Contains(ue.Msg, "cannot write several videos to stdout") {
+		if !strings.Contains(ue.Msg, "cannot write a directory of results to stdout") {
 			t.Fatalf("msg = %q", ue.Msg)
 		}
 	}
@@ -326,7 +318,9 @@ func TestDiagnoseDirectory(t *testing.T) {
 	}
 }
 
-func TestConvertDirectorySplit(t *testing.T) {
+// TestConvertDirectoryProducesImportableProject checks the project half of the
+// pair is a real archive that Procreate would see as having no timelapse.
+func TestConvertDirectoryProducesImportableProject(t *testing.T) {
 	root := t.TempDir()
 	writeTree(t, root, map[string][]byte{"one.procreate": goodArchBytes(t)})
 	outDir := filepath.Join(t.TempDir(), "out")
@@ -334,16 +328,16 @@ func TestConvertDirectorySplit(t *testing.T) {
 	log := bufLogger(&logBuf)
 
 	code, err := ConvertDirectory(context.Background(), log, root, outDir,
-		video.Config{Split: true}, false, false)
+		video.Config{}, false, false)
 	if err != nil || code != 0 {
 		t.Fatalf("code=%d err=%v\n%s", code, err, logBuf.String())
 	}
-	if _, err := os.Stat(filepath.Join(outDir, "one.mp4")); err != nil {
-		t.Fatalf("one.mp4 missing: %v", err)
+	if _, err := os.Stat(filepath.Join(outDir, TimelapseDir, "one.mp4")); err != nil {
+		t.Fatalf("timelapse missing: %v", err)
 	}
-	slim := filepath.Join(outDir, "one.procreepy.procreate")
+	slim := filepath.Join(outDir, ProjectDir, "one"+ProjectSuffix)
 	if _, err := os.Stat(slim); err != nil {
-		t.Fatalf("slim missing: %v", err)
+		t.Fatalf("project missing: %v", err)
 	}
 	a, err := procreate.Open(slim, slim)
 	if err != nil {
@@ -351,11 +345,10 @@ func TestConvertDirectorySplit(t *testing.T) {
 	}
 	defer a.Close()
 	if _, err := a.Segments(procreate.Options{}); err == nil {
-		t.Error("slim still has segments")
+		t.Error("the project still has timelapse segments")
 	}
-	if !strings.Contains(logBuf.String(), `msg="slimmed archive written"`) ||
-		!strings.Contains(logBuf.String(), `path=`+slim) {
-		t.Errorf("log missing slim line:\n%s", logBuf.String())
+	if !strings.Contains(logBuf.String(), "removed_segments=2") {
+		t.Errorf("log missing the removal count:\n%s", logBuf.String())
 	}
 }
 

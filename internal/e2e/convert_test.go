@@ -233,15 +233,6 @@ func TestQuiet(t *testing.T) {
 	})
 }
 
-func TestReencodeNoop(t *testing.T) {
-	dir := t.TempDir()
-	writeArchive(t, dir, "in.procreate", stdThree())
-	wantErr := chattyBlock("in.procreate", 3, "out.mp4", 6.0)
-	check(t, run(t, dir, nil, "--reencode", "in.procreate", "out.mp4"), 0, "", wantErr)
-	eqBytes(t, "out.mp4", readAll(t, filepath.Join(dir, "out.mp4")),
-		expectedMP4(t, segN(1), segN(2), segN(3)))
-}
-
 func TestTmpdir(t *testing.T) {
 	wantErr := chattyBlock("in.procreate", 3, "out.mp4", 6.0)
 	tt := []struct {
