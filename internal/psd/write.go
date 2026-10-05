@@ -3,7 +3,7 @@
 //
 // The layout follows the published Photoshop file format: a 26-byte header, an
 // empty colour-mode section, image resources, the layer and mask section, and
-// finally the merged composite. Fidelity is documented in the README; in short,
+// finally the merged composite. Fidelity is documented in docs/usage.md; in short,
 // the layer tree, names, visibility, opacity, blend modes, bounds and RGBA
 // pixels survive, while masks, clipping semantics and text layers do not, and
 // straight-alpha colour cannot be recovered exactly from Procreate's

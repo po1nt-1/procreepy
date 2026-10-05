@@ -1,286 +1,353 @@
 # procreepy
 
-一个小型跨平台工具（Linux、Windows、macOS）：从 `.procreate` 文件中提取现成的归档延时摄影，并将其片段合并成一个 MP4。不会重新编码（stream copy），也不会进行渲染。
+把 Procreate 早已录制在 `.procreate` 文件里的延时视频，取出来变成一个普通的 MP4。
 
-`.procreate` 是一个 ZIP 压缩包。如果启用了延时摄影录制，其中会包含：
+- 不重新编码：直接复制帧，画质与 Procreate 原始录制一致。
+- 你的 `.procreate` 原文件永不被修改。
+- 一次处理一个文件，或者一整个文件夹。
+- 只有一个程序文件。不需要 ffmpeg、不需要 Python、不需要账号、无需配置。
+- 在 Windows、macOS 和 Linux 上离线运行。
+
+## 这个工具适合你吗
+
+适合使用 procreepy，如果：
+
+- 你有 `.procreate` 文件；
+- 绘制时**开启了延时录制**（Procreate 默认开启）；
+- 你想把这段延时视频导出成可上传、可剪辑、可保存的 MP4；
+- 或者你想从作品中清除延时数据，让文件变小。
+
+procreepy **无法**：
+
+- 生成一段从未录制过的延时视频——它只能提取已经存在的；
+- 从图层或撤销历史重建延时视频；
+- 修复损坏的 `.procreate` 文件；
+- 导出作品的成品图像（但可以导出分层 PSD，见[导出 PSD](#导出-psd)）。
+
+不确定文件里有没有延时视频？[先检查一下](#转换前先检查文件)——一条命令，什么都不会生成。
+
+## 你会得到什么
+
+一个文件进，一个视频出：
 
 ```text
-video/segments/segment-1.mp4
-video/segments/segment-2.mp4
-...
-```
-工具只处理这些文件：按**数字顺序**排序（`segment-9` 在 `segment-10` 之前），解析每个片段的 MP4 结构，并将它们重新组装成一个 moov-first MP4，视频帧原样复制。在批量模式下，它为每件处理过的作品额外写出一个不含延时摄影、可再次导入的项目副本，加 `--psd` 时再写一份带图层的 Photoshop PSD 文档。延时摄影这条路径本身绝不打开 `Document.archive`、图层或栅格数据块（`*.lz4`）——只有 `--psd` 会打开。
-
-## 要求
-
-没有外部依赖：不需要 `ffmpeg` 或 `ffprobe`。构建只需要 Go（版本见 `go.mod`）和 `make`（所有支持的平台都提供；在精简系统上可通过包管理器安装）。
-Makefile 是规范的构建入口：它固定了与 CI 相同的封闭构建环境（离线模块模式、本地 toolchain、无 cgo），并会自动定位 Go toolchain。
-
-```bash
-make build      # 编译全部内容并生成可运行的 ./procreepy
-make check      # gofmt + build + vet + 完整测试套件
+my-art.procreate  →  procreepy  →  my-art.mp4
 ```
 
-`make build` 会在二进制文件中写入 `dev-<short sha>`（不在 Git checkout 中时为 `dev-nogit`），因此 `procreepy --version` 可以显示它从哪里构建而来（release tarball 则记录对应的 tag）。不使用 `make` 时，等价命令是 `go build ./... && go build -o procreepy ./cmd/procreepy`（该二进制会报告 `dev`，或在可用 VCS 盖章时报告 `dev-<commit>`）。
+一个文件夹进，两个文件夹出：
 
-### 为其他操作系统构建
+```text
+input/                          output/
+├── Cat.procreate         →     ├── timelapses/
+├── Landscape.procreate   →     │   ├── Cat.mp4
+└── Sketch.procreate      →     │   ├── Landscape.mp4
+                                │   └── Sketch.mp4
+                                └── projects/
+                                    ├── Cat.procreepy.procreate
+                                    ├── Landscape.procreepy.procreate
+                                    └── Sketch.procreepy.procreate
+```
 
-项目是纯 Go 代码，可以干净地交叉编译到所有支持的目标平台。从任意平台都可以：
+- `timelapses/` 里是视频。
+- `projects/` 里是每件作品**移除延时数据后**的副本：体积小得多，并且可以重新导入
+  Procreate。项目中其余内容逐字节保留。
+- `input/` 保持原样，分毫不动。
 
-| 目标 | 命令 |
+## 安装
+
+从发布页面下载适合你系统的现成程序——不需要 Go，也不需要任何构建工具。
+
+- GitLab：https://gitlab.com/po1nt-1/procreepy/-/releases
+- GitHub：https://github.com/po1nt-1/procreepy/releases
+
+选择与你电脑匹配的文件：
+
+| 你的系统 | 下载 |
 |---|---|
-| Linux x86-64 | `make release GOOS=linux GOARCH=amd64` |
-| Linux ARM 64 位（Raspberry Pi、Graviton） | `make release GOOS=linux GOARCH=arm64` |
-| Linux ARM 32 位 | `make release GOOS=linux GOARCH=arm` |
-| Windows x86-64（10/11） | `make release GOOS=windows GOARCH=amd64` |
-| Windows ARM 64 位 | `make release GOOS=windows GOARCH=arm64` |
-| macOS Intel | `make release GOOS=darwin GOARCH=amd64` |
-| macOS Apple Silicon（M1–M5） | `make release GOOS=darwin GOARCH=arm64` |
-每个目标都会生成规范化的 `dist/procreepy-<version>-<os>-<arch>.tar.gz` 并打印其 SHA-256；`make cross` 会一次构建完整矩阵，`make repro` 则证明构建可以逐位复现。单个目标的直接等价命令是 `GOOS=… GOARCH=… go build -o procreepy[.exe] ./cmd/procreepy`。
-所有构建都是静态的（无 cgo）：Linux 二进制文件可以在任意发行版上运行，与其 glibc 版本无关。CI 流水线（GitLab 和 GitHub）会在每次 commit 时构建这些目标，并且由于 Windows 是主要平台，还会针对真实的 `windows/amd64` 二进制文件运行完整测试套件：在 GitHub 托管 runner 上原生运行，在仅有 Linux runner 的 GitLab 上则通过 Wine 运行（参见 `ci/windows-wine/`）；`dist` 任务发布 tarball 和 `SHA256SUMS` 清单，`repro:*` 任务证明二进制文件可以逐位复现。
+| Windows（大多数 PC） | `procreepy_<version>_windows_amd64.zip` |
+| ARM 架构的 Windows | `procreepy_<version>_windows_arm64.zip` |
+| Apple Silicon 的 Mac（M1–M5） | `procreepy_<version>_darwin_arm64.tar.gz` |
+| Intel 的 Mac | `procreepy_<version>_darwin_amd64.tar.gz` |
+| Linux（大多数 PC） | `procreepy_<version>_linux_amd64.tar.gz` |
+| ARM 架构的 Linux（树莓派、Graviton） | `procreepy_<version>_linux_arm64.tar.gz` |
+| 32 位 ARM 的 Linux | `procreepy_<version>_linux_arm.tar.gz` |
 
-- Linux/macOS：无需安装，直接运行二进制文件。
-- Windows：二进制文件未签名，因此 SmartScreen 可能显示“已保护你的电脑”——选择 **更多信息 → 仍要运行**。
+在 Mac 上，点苹果菜单 →「关于本机」即可看到你用的是 Apple Silicon 还是 Intel。
 
-## 在容器中运行
+### Windows
 
-每个发布标签还会向项目 registry 推送一个多架构镜像（`linux/amd64`、`linux/arm64`），因此无需 Go 工具链、也无需解压 tarball 即可运行该 CLI。这同样覆盖 Apple Silicon：在 M 系列 Mac 上，Docker Desktop 和 `podman machine` 运行的是 `linux/arm64` 虚拟机，所以会自动选中 arm64 变体——不需要 `--platform` 参数，也没有模拟开销。
+1. 下载 `procreepy_<version>_windows_amd64.zip`。
+2. 右键点击下载的文件 →**全部解压缩**→选一个以后能找到的文件夹，例如
+   `Downloads\procreepy`。
+3. 打开该文件夹，点击顶部的地址栏，输入 `cmd` 并回车。会在该文件夹中打开一个黑色的
+   命令提示符窗口。
+4. 把一个 `.procreate` 文件放进同一个文件夹，然后运行：
+
+   ```text
+   procreepy.exe "My Artwork.procreate" "My Artwork.mp4"
+   ```
+
+   只有名称中含空格时才需要引号。
+
+**关于 SmartScreen 警告。** 这个程序没有用付费的微软证书签名，所以首次运行时
+Windows 可能弹出蓝色窗口「Windows 已保护你的电脑」，并称其为「无法识别的应用」。
+这不是病毒报告——任何 Windows 尚未见得足够多的程序都会触发它。要继续，请点击
+**更多信息**，再点出现的**仍要运行**按钮。如果你不愿意这样做，可以改用
+[容器镜像](#docker--podman)。
+
+### macOS
+
+1. 下载对应芯片的 `.tar.gz`（Apple Silicon 用 `darwin_arm64`，Intel 用
+   `darwin_amd64`）。
+2. 打开「终端」（应用程序 → 实用工具 → 终端），进入下载文件夹：
+
+   ```bash
+   cd ~/Downloads
+   ```
+
+3. 解压并允许运行：
+
+   ```bash
+   tar -xzf procreepy_*_darwin_*.tar.gz
+   xattr -d com.apple.quarantine ./procreepy
+   ```
+
+   `xattr` 这一行移除下载隔离标记。没有它，macOS 会拒绝启动该程序，因为它未经
+   Apple 公证。
+
+4. 转换一个文件：
+
+   ```bash
+   ./procreepy "My Artwork.procreate" "My Artwork.mp4"
+   ```
+
+想在任何目录下直接输入 `procreepy`，把它移到 PATH 里：
+`sudo mv ./procreepy /usr/local/bin/`。
+
+### Linux
 
 ```bash
-# 单个文件——挂载当前目录，并使用目录内的路径
+tar -xzf procreepy_*_linux_amd64.tar.gz
+./procreepy artwork.procreate artwork.mp4
+```
+
+程序是静态链接的，因此在任何发行版上都能运行，与其 glibc 版本无关。为所有用户
+安装：`sudo install -m 755 procreepy /usr/local/bin/`。
+
+### Docker / Podman
+
+每个发布版本都会推送容器镜像，覆盖 `linux/amd64` 和 `linux/arm64`。在 Apple
+Silicon 的 Mac 上会自动选中 arm64 变体。
+
+```bash
 docker run --rm -v "$PWD":/data -w /data \
   registry.gitlab.com/po1nt-1/procreepy:latest artwork.procreate artwork.mp4
-
-# 批量模式：一个输入目录，一个输出目录
-docker run --rm -v "$PWD":/data -w /data \
-  registry.gitlab.com/po1nt-1/procreepy:latest input/ output/
-
-# stdin → stdout 完全不需要挂载
-docker run --rm -i registry.gitlab.com/po1nt-1/procreepy:latest - \
-  < artwork.procreate > artwork.mp4
 ```
 
-把 `docker` 原样换成 `podman` 即可。要固定版本，请用 `:1.2.3` 代替 `:latest`（镜像标签不带 `v` 前缀）；`latest` 绝不会指向预发布标签。
+把 `docker` 原样换成 `podman` 即可。要固定版本，用 `:0.3.0` 代替 `:latest`（镜像
+标签不带 `v` 前缀）。文件归属等细节见 [usage.md](usage.md#container-usage)。
 
-- **文件归属。** 镜像以 uid 65532（`distroless/static:nonroot`）运行。在 Linux 主机上请加 `--user "$(id -u):$(id -g)"`，这样输出文件才属于你；macOS 上的 Docker Desktop 会自行映射挂载归属，无需额外参数。
-- **镜像内没有 shell。** 镜像里只有那个静态二进制文件，所以 `docker run … --help` 或 `… --verify file.procreate` 可用，但没有 `sh` 可以进去。
-- **临时文件** 写在容器的可写层，而不是挂载卷上。大体量的 timelapse 可能需要不少空间；`--tmpdir /data/tmp` 可把它们改放到挂载卷。
-- **私有项目。** registry 的访问权限跟随项目可见性：公开项目可匿名拉取，否则请先执行 `docker login registry.gitlab.com`。
+### 从源码构建
 
-## 用法
+只有想改代码时才需要。见 [development.md](development.md)。
 
-单个文件：
+### 校验下载（可选）
+
+每个发布版本还会附带 `CHECKSUMS.txt`。要确认下载完整，输出你文件的哈希，并与其中
+对应的那一行比对：
+
+```bash
+sha256sum procreepy_0.3.0_linux_amd64.tar.gz    # Linux
+shasum -a 256 procreepy_0.3.0_darwin_arm64.tar.gz   # macOS
+grep darwin_arm64 CHECKSUMS.txt                 # 期望值
+```
+
+Windows 上：`certutil -hashfile procreepy_0.3.0_windows_amd64.zip SHA256`。
+
+两个值必须完全一致。这一步可选——它能发现被截断或被篡改的下载，仅此而已。
+
+## 转换单个文件
 
 ```bash
 procreepy artwork.procreate artwork.mp4
-procreepy artwork.procreate > artwork.mp4
-cat artwork.procreate | procreepy - > artwork.mp4
-procreepy --list artwork.procreate
-procreepy --verify artwork.procreate
 ```
-支持全部四种 `INPUT`/`OUTPUT` 组合：`FILE OUTPUT`、`FILE -`、`- OUTPUT`、`- -`。如果省略 `OUTPUT`，则写入 stdout。如果 `OUTPUT` 是一个已存在的目录，视频会使用原始名称写入该目录（`procreepy art.procreate videos/` → `videos/art.mp4`）。
 
-### 批量模式：一个 `.procreate` 文件夹 → 视频和项目的文件夹
+结果：
 
-场景：“`input/` 中有很多 `.procreate` 文件，希望结果放到 `output/` 中”：
+```text
+artwork.mp4
+```
+
+原文件 `artwork.procreate` 不会被修改。如果 `artwork.mp4` 已存在，它会被替换，
+但只在新视频完整写入之后。
+
+你也可以给一个文件夹作为目标，让 procreepy 自己命名：
+
+```bash
+procreepy artwork.procreate videos/
+```
+
+结果：`videos/artwork.mp4`。该文件夹必须已经存在。
+
+## 转换整个文件夹
 
 ```bash
 procreepy input/
 ```
 
-每件处理过的作品产出一对——延时摄影和一个不含它、可再次导入的项目：
-
-```text
-input/                               output/
-├── Portrait of a Cat.procreate  →   ├── timelapses/Portrait of a Cat.mp4
-│                                    ├── projects/Portrait of a Cat.procreepy.procreate
-├── Landscape v2.procreate       →   ├── timelapses/Landscape v2.mp4
-│                                    └── projects/Landscape v2.procreepy.procreate
-└── No Timelapse.procreate              （跳过，并给出警告——未写任何东西）
-```
-- **命名**：`<去掉 .procreate 的原始名称>`，再加 `.mp4` 或
-  `.procreepy.procreate`。空格、西里尔字母和特殊字符均原样保留；在不区分
-  大小写的文件系统中，仅大小写不同的名称会获得后缀 `-2`、`-3`，……
-- **输出目录**：默认是相对于当前目录的 `output/`，并自动创建。也可以作为
-  第二个参数指定其他目录：`procreepy input/ ~/Videos/procreate`。
-- **精简项目**：`projects/NAME.procreepy.procreate` 是同一个归档，去掉了
-  `video/segments/segment-N.mp4` 成员；其余所有成员逐字节搬移（顺序、压缩
-  方式和时间戳不变）。项目保留源文件的修改时间，因此重新导入 Procreate 时
-  画廊不会被重新排序。
-- **重复运行是安全的**：延时摄影和项目都已存在的文件会被跳过；做了一半的
-  一对会整体重建。要全部重新生成，请使用 `--force`（`-f`）。
-- **`-r`** 也会进入子目录；其结构在两棵树中都有镜像，因此不同目录中的同名
-  文件不会冲突。
-- **单个损坏文件不会阻止其余文件处理。** 没有延时摄影的文件（录制未开启）
-  是警告而不是错误：不为它写任何东西。损坏文件属于错误：会出现在最终汇总
-  中，退出码变为 `1`。
-- **原子化的一组输出**：一个文件的各项输出（延时摄影 + 项目，加 `--psd` 时
-  还有 PSD）先写入临时文件，然后作为一组整体发布——要么全部，要么全无。
-  失败的运行绝不会留下一个孤立的视频配上一个缺失的项目。
-- 隐藏文件（`._Foo.procreate`，macOS 在复制时可能留下）会被忽略。
-- 原始文件绝不会被修改。
-
-示例输出（全部写入 stderr；运行因损坏文件以代码 `1` 结束）：
-
-```text
-level=INFO msg="batch conversion started" files=4 input=input/ timelapses=output/timelapses/ projects=output/projects/
-level=ERROR msg="file conversion failed" input="input/Corrupt file.procreate" err="input is not a valid ZIP archive: input/Corrupt file.procreate (not a .procreate file, or truncated/corrupted)"
-level=INFO msg=converted input="input/Landscape v2.procreate" timelapse="output/timelapses/Landscape v2.mp4" project="output/projects/Landscape v2.procreepy.procreate" removed_segments=17 video_size="6.7 MiB"
-level=WARN msg="no timelapse video inside, skipped" input="input/No Timelapse.procreate"
-level=INFO msg=converted input="input/Portrait of a Cat.procreate" timelapse="output/timelapses/Portrait of a Cat.mp4" project="output/projects/Portrait of a Cat.procreepy.procreate" removed_segments=18 video_size="4.1 MiB"
-level=INFO msg="batch completed" converted=2 existed=0 no_video=1 failed=1
-```
-
-`removed_segments` 是从精简项目中移除的片段文件数，`video_size` 是它们在
-归档内的总（压缩后）大小。重复运行同一命令会为每一对已存在的输出来报告：
-
-```text
-level=INFO msg="skipped, outputs already exist (use --force to overwrite)" input="input/Landscape v2.procreate" timelapse="output/timelapses/Landscape v2.mp4" project="output/projects/Landscape v2.procreepy.procreate"
-```
-
-`--list` 和 `--verify` 也接受目录，并会遍历其中的所有文件。
-
-### PSD 导出（`--psd`）
+读取 `input/` 中的每个 `.procreate`，写入 `output/`，结构如
+[你会得到什么](#你会得到什么)所示。要自己指定目标：
 
 ```bash
-procreepy --psd input/ out/
+procreepy input/ ~/Videos/timelapses
 ```
 
-仅接受目录输入。每一对转换结果的旁边会写出 `out/psd/NAME.psd`，与其余输出
-一起原子化发布：
+要包含子文件夹（其结构会在输出中镜像保留）：
 
-```text
-level=INFO msg="psd exported" input="input/Portrait of a Cat.procreate" psd="out-psd/psd/Portrait of a Cat.psd" layers=3
+```bash
+procreepy -r input/ output/
 ```
 
-PSD 中包含的内容：
+运行过程中会发生什么：
 
-- 图层树（分组、顺序）、图层名称（Unicode）、可见性、不透明度、混合模式、
-  边界和锁定状态；
-- 每个图层的 8 位 RGBA 像素（用 PackBits 压缩）；
-- DPI 和嵌入的 ICC 配置文件；
-- 合并后的合成图，逐字取自 Procreate 自身的扁平化渲染结果（当该渲染缺失或
-  损坏时，可见图层以 Normal 模式合成作为近似）。
+- 进度按文件逐行报告。
+- 从未录制延时的文件会**带警告跳过**。不会为它写任何东西，运行继续。
+- 损坏的文件会报为错误，运行仍会继续处理其余文件，命令最终以退出码 `1` 结束，
+  便于脚本察觉。
+- 同一条命令跑第二次不会重做已完成的工作：结果已在的作品会被跳过。加上 `-f`
+  可强制重建。
 
-PSD 中不包含的内容——它是导出，而不是无损往返：
+## 转换前先检查文件
 
-- 图层蒙版和精确的“裁剪到下层”语义不会保留；
-- 文本图层保留像素，但不可编辑的文本数据不保留；
-- 直通 alpha（未预乘）无法精确还原：Procreate 存储的是预乘的 8 位瓦片，
-  因此图层边缘的镶边颜色可能有细微差异；
-- 宽或高超过 30000 像素的画布会被直接拒绝（PSD 格式的限制，PSB 才行）。
+这两条命令都不生成视频，也不改动任何东西。
 
-`.procreate` 仍然是母版；把 PSD 当作给 Photoshop 和其他导入工具的快照。
-
-### 诊断
+**这个文件里有延时视频吗，有多长？**
 
 ```bash
 procreepy --list artwork.procreate
 ```
 
 ```text
-input: input/Portrait of a Cat.procreate
+input: artwork.procreate
 segments: 18
 
 1  video/segments/segment-1.mp4
 2  video/segments/segment-2.mp4
-3  video/segments/segment-3.mp4
 ...
-17 video/segments/segment-17.mp4
-18 video/segments/segment-18.mp4
 ```
+
+`--list` 只读取文件的目录表。瞬间完成，用来回答「里面到底有没有延时视频」。
+
+**转换真的能成功吗？**
 
 ```bash
 procreepy --verify artwork.procreate
 ```
-工具会直接从归档中解析每个片段（包括 ZIP 内部的 CRC 校验），逐行输出报告，并检查这些片段是否可以在不重新编码的情况下合并。**不会创建输出视频。**`--list` 只读取 ZIP 目录。
 
-## 选项
+`--verify` 更进一步：读取每个延时片段、检查是否损坏，并确认这些片段能够在不重新
+编码的前提下拼接起来。比 `--list` 慢，但它才是「这个能干净地转换出来吗」的诚实
+答案。
 
-| 选项 | 作用 |
+两者也都接受文件夹，此时会对其中每个文件给出报告。
+
+## 导出 PSD
+
+```bash
+procreepy --psd input/ output/
+```
+
+在每个视频和精简项目旁边，会写出 `output/psd/NAME.psd`：一个分层的 Photoshop
+文件，可用 Photoshop、Affinity Photo、GIMP 等打开。
+
+`--psd` **只支持文件夹作为输入**。若给单个文件，命令会停下并提示
+`--psd needs a directory INPUT; it writes into OUTPUT/psd/`。
+
+PSD 是一次导出，而不是完美副本。它保留图层树与图层名、可见性、不透明度、混合模式
+以及图像本身；**不**保留图层蒙版、剪贴关系和可编辑文字。在把它用于正式产出之前，
+请先阅读 [PSD 保留了什么、丢失了什么](usage.md#export-a-psd)。请始终把
+`.procreate` 文件当作母版。
+
+## 你的文件会怎样
+
+- **你的原文件永不被修改。** procreepy 以只读方式打开 `.procreate`。它产出的一切
+  都写在别处。
+- **不会留下写了一半的东西。** 每个结果先在临时文件中生成，只有完整后才被放到位。
+  被中断或失败的运行绝不会留下损坏的视频，也不会破坏原本已存在的文件。
+- **文件夹模式按作品成套发布。** 一件作品的视频、精简项目和 PSD 要么一起出现，
+  要么都不出现——你绝不会得到一个没有对应项目的视频。
+- **重复运行是安全的。** 已完成的作品会被跳过。因中断而残缺的一套会被整体重建。
+  `-f` 则重建全部。
+- **转换单个文件会替换目标文件**（如果存在），且在新视频完整写入之后才替换。
+- **大文件需要临时空间。** 大型延时视频通过临时文件组装。空间不足时，用
+  `--tmpdir` 指向更宽裕的磁盘。
+
+## 如果出错了
+
+| 你看到的 | 含义 |
 |---|---|
-| `-h`, `--help` | 显示帮助并退出 |
-| `--list` | 按播放顺序列出片段并退出 |
-| `--verify` | 验证每个片段；不创建输出视频 |
-| `-r`, `--recursive` | 目录输入：同时进入子目录 |
-| `-f`, `--force` | 目录输入：覆盖已经存在的结果 |
-| `--strict` | 将缺失的片段编号视为错误（默认只是警告） |
-| `--psd` | 目录输入：为每件作品额外导出带图层的 PSD |
-| `--tmpdir DIR` | 临时文件的存放位置（默认：`$TMPDIR`，其次是 `/var/tmp`，再是系统临时目录） |
-| `-q`, `--quiet` | 只输出警告和错误 |
-| `--version` | 显示版本号并退出 |
-| `--` | 停止解析选项；其余按位置参数处理 |
+| `procreepy: command not found` | 你不在解压所在的文件夹；macOS/Linux 上请用 `./procreepy`。 |
+| `no video/segments in the archive` | 该文件没有录制延时视频，无法恢复。 |
+| `input is not a valid ZIP archive` | 不是 `.procreate` 文件，或下载/拷贝被截断。 |
+| `segment ... is corrupted inside the archive` | 延时数据已损坏。 |
+| `segments are incompatible` | 延时录制跨越了画布或画质切换，无法在不重新编码的情况下拼接。 |
+| `refusing to write video data to a terminal` | 请给出目标文件名，或用 `> out.mp4` 重定向。 |
+| `Windows 已保护你的电脑` | 见 [SmartScreen 说明](#windows)。 |
+| `no space left` / 写入错误 | 用 `--tmpdir` 指向可用空间更多的磁盘。 |
+
+以上每一种情况的确切症状与处理办法，都在
+[troubleshooting.md](troubleshooting.md)。
+
+## 命令参考
+
+```text
+procreepy [options] INPUT [OUTPUT]
+```
+
+`INPUT` 是一个 `.procreate` 文件、一个装着它们的文件夹，或 `-` 表示标准输入。
+`OUTPUT` 是文件名、文件夹，或 `-` 表示标准输出。对单个文件，省略 `OUTPUT` 表示把
+视频写到标准输出；对文件夹，默认是 `output/`。
+
+| 选项 | 作用 | 适用于 |
+|---|---|---|
+| `-h`、`--help` | 显示帮助并退出 | 始终 |
+| `--version` | 显示版本并退出 | 始终 |
+| `--list` | 列出延时片段；不写视频 | 文件或文件夹 |
+| `--verify` | 检查每个片段；不写视频 | 文件或文件夹 |
+| `-r`、`--recursive` | 同时处理子文件夹 | 仅文件夹输入 |
+| `-f`、`--force` | 覆盖已存在的结果 | 仅文件夹输入 |
+| `--psd` | 为每件作品额外导出分层 PSD | 仅文件夹输入 |
+| `--strict` | 把片段编号的缺口视为错误而非警告 | 文件或文件夹 |
+| `--tmpdir DIR` | 临时文件放在哪里 | 始终 |
+| `-q`、`--quiet` | 只打印警告和错误 | 始终 |
+| `--` | 停止解析选项；其余一律当作文件名 | 始终 |
+
+含示例、输出格式和退出码的完整参考：[usage.md](usage.md)。
 
 ## 工作原理
 
-1. `INPUT` 可以是文件或 stdin。stdin（以及任何不可随机访问的输入）会先写入临时文件，因为 ZIP 需要随机访问。
-2. 校验 ZIP（只读），并定位 `video/segments/segment-N.mp4` 条目。
-3. 按数字排序。编号出现间隔时给出警告；没有数字的名称会在警告后忽略。
-4. 直接从 ZIP 中解析每个片段（不做完整解压）：MP4 boxes、轨道大小、编解码器参数。发现第一个损坏后立即停止。
-5. 检查兼容性（分辨率、编解码器、SPS/PPS 集合、音频）。否则 `-c copy` 可能静默地产生损坏结果，因此不兼容会作为错误并给出明确消息，而不是让问题出现在最终视频里。
-6. 组装 moov-first MP4：`ftyp`、`moov`（所有轨道，从各片段中截取），然后按播放顺序依次写入 `mdat`。
-7. 运行所承诺的一切（MP4、精简项目、PSD）都先进入临时文件，直到最后一项
-   成功之后才作为一个整体发布；批量模式下无论如何都会继续下一个输入。
-8. 临时文件（如果创建了）始终删除：成功、出错、Ctrl+C 或 SIGTERM 时都如此。
+`.procreate` 文件就是一个 ZIP 压缩包。开启延时录制时，Procreate 会把成品视频存在
+里面，并切成带编号的若干片段（`video/segments/segment-1.mp4`、`segment-2.mp4`
+……）。procreepy 直接从压缩包里读取这些片段，按数字排序，确认它们的编解码器与画布
+一致，然后原样复制帧并缝成一个 MP4。全程不渲染、不重新编码——所以又快又无损。
 
-### 写入文件和 stdout
+延时提取这条路径从不查看你的图层。只有 `--psd` 会读取作品本身。
 
-两种输出路径都会组装相同的 moov-first MP4：先写入 moov atom，因为帧直接从源片段复制，而且在开始写入前元数据已经已知。写入文件时，这是适合播放器和编辑器的“经典”MP4；写入管道时得到的是完全相同的文件——`> artwork.mp4` 与显式执行 `procreepy artwork.procreate artwork.mp4` 结果一致。
-- **写入文件**是原子的：目标旁边先创建 `.partial` 文件，只有成功后才重命名。失败的运行不会留下残文件，也绝不会破坏已有文件。
-- Windows 上的差异：最终的重命名使用带“替换已存在文件”标志的 `MoveFileEx`，因此 `--force` 和重新生成不完整的输出组都会就地替换已有文件，行为与 Unix 一致。它并不像 POSIX rename 那样严格原子；实际的差别只出现在一种情形——如果目标文件还被其他程序占着（例如播放器还开着上一次的 MP4），重命名会被拒绝并报出可读的 `Access is denied` 错误，旧文件保持不动，关闭该程序后重新运行即可成功。
-- stdout 从不混入文本。所有日志行（`level=INFO`/`WARN`/`ERROR`，每行一个结构化的 key=value 记录）都写入 stderr。唯一例外是 `--list`/`--verify` 报告，此时 stdout *就是*结果。如果 stdout 是终端，工具会拒绝向其中输出二进制 MP4。
+更多细节——MP4 组装、原子写入、临时文件策略、PSD 保真度：
+[how-it-works.md](how-it-works.md)。
 
-### 控制台颜色
+## 开发
 
-当 stderr 是交互式终端且环境变量 `NO_COLOR` 未设置时，级别令牌 `WARN` 和
-`ERROR` 会被着色（黄色和粗体红色）；`INFO` 保持普通。管道、重定向、CI 和
-测试都保持逐字节的普通格式，因此不会影响任何脚本。特意不提供 `--color`
-选项。
+构建、测试、覆盖率、交叉编译、发布与 CI：[development.md](development.md)。
 
-### 临时文件和 Fedora
-
-在 Fedora 上，`/tmp` 是位于内存中的 tmpfs。延时摄影片段可能达到数百 MB，从 stdin 读取时，整个 `.procreate` 都需要先写入临时文件。因此临时目录按以下顺序选择：`--tmpdir` → `$TMPDIR` → `/var/tmp`（磁盘）→ 系统默认值。如果在临时写入期间磁盘空间耗尽，会得到带提示的明确错误（使用 `--tmpdir` 指向更大的磁盘目录），而不是简单的“磁盘空间不足”。
-
-## 退出码
-
-| 代码 | 含义 |
-|---|---|
-| 0 | 成功 |
-| 1 | 意外错误；批量模式下——至少有一个文件失败 |
-| 2 | 参数错误（包括 `--psd` 带单个文件，或把整组结果写入 stdout）；`OUTPUT` 与 `INPUT` 是同一个文件；stdout 是终端 |
-| 3 | 输入不存在、为空或不是 ZIP |
-| 4 | 归档中没有 `video/segments`（没有录制延时摄影） |
-| 5 | 片段损坏；编号存在歧义或缺失（`--strict`） |
-| 6 | 保留（未使用：没有外部依赖） |
-| 7 | 片段不兼容 stream copy |
-| 8 | 保留（未使用：没有外部依赖） |
-| 9 | 写入结果或临时文件失败 |
-| 130 | 被中断（Ctrl+C / SIGTERM） |
-
-## 测试
+前置条件是 Go（版本见 [`go.mod`](../go.mod)）和 `make`。本项目没有任何第三方依赖。
 
 ```bash
-make test          # or: go test ./...
+make check   # 格式检查 + 构建 + vet + 完整测试套件
 ```
-
-不需要真实的 `.procreate` 文件：测试会使用生成的 MP4 片段构建 ZIP（见 `internal/testkit`）。检查是结构性的：解析生成的 MP4、检查 box 顺序、sample 数量和 `mdat` 内容。安装 C 编译器后也可以运行 `-race`，但它不是必需的。
-覆盖范围包括：普通文件、缺少 `video/segments`、单个片段、片段顺序错误（`segment-9`/`segment-10`）、stdin、stdout、名称中的空格和特殊字符、损坏和截断的 ZIP、损坏和截断的 MP4、CRC 损坏、写入错误（`/dev/full`）、不兼容片段，以及完整的批量模式。
-
-## 工具明确不会做的事情
-
-延时摄影路径不会解析 `Document.archive`（NSKeyedArchive），不会触碰 `*.lz4`，不会恢复图层，也不会渲染图像；`--psd` 会解析文档——用于上面所述的导出，并遵循该节列出的保真度限制。如果文件中没有录制延时摄影，工具无法从绘画历史中恢复它。注意：对从 `.procreate` 中取出的 `.lz4` 文件执行 `lz4 -t` 并不能进行完整性检查，因为这些文件并不是独立的 LZ4 帧。
-
-## 格式参考
-
-- Silica Viewer — https://github.com/heyzoish/silica-viewer
-- Silicate — https://github.com/axaril/silicate
-- ProcreateViewer — https://github.com/NothingData/ProcreateViewer
 
 ## 许可证
 
-Apache License 2.0，见 `LICENSE`。
-
----
+Apache License 2.0 — 见 [LICENSE](../LICENSE)。
 
 ## 语言
 

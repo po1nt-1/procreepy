@@ -23,8 +23,8 @@ var tileExts = []string{".chunk", ".lz4", ".lz4c"}
 //
 // The returned image is NRGBA (straight alpha). Un-premultiplying is lossy for
 // partially transparent pixels: the original straight-alpha colour is not
-// recoverable from 8-bit premultiplied data. See the README for the fidelity
-// contract.
+// recoverable from 8-bit premultiplied data. See docs/usage.md for the
+// fidelity contract.
 func (d *Document) Image(ctx context.Context, r *Raster) (*image.NRGBA, error) {
 	return d.ImageIn(ctx, r, image.Rect(0, 0, d.Width, d.Height))
 }

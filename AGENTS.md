@@ -61,7 +61,7 @@ exactly once, from the e2e binary), then merges both profiles into
 | `internal/mp4` | custom MP4 box parser/writer: moov-first emit, stream copy, stco/co64 switch at 4 GiB |
 | `internal/procodec` | decodes the two compressed containers Procreate uses for layer tiles: Apple compression-lib LZ4 (`.lz4`) and bare LZO1X-1 (`.chunk`) |
 | `internal/silica` | reads `Document.archive` (Apple binary plist / NSKeyedArchiver) and the layer tiles it references — feeds `--psd` |
-| `internal/psd` | writes 8-bit RGBA PSDs: layer tree, names, visibility/opacity/blend/bounds/locks, PackBits, DPI+ICC, merged composite; fidelity limits documented in the README |
+| `internal/psd` | writes 8-bit RGBA PSDs: layer tree, names, visibility/opacity/blend/bounds/locks, PackBits, DPI+ICC, merged composite; fidelity limits documented in `docs/usage.md` |
 | `internal/testkit` | builds synthetic MP4 segments and `.procreate` ZIPs for tests — no binary fixtures are committed |
 | `internal/fixture` | regression suite against a real `.procreate` corpus; every test skips unless `PROCREATE_FIXTURE_DIR` or `PROCREATE_FIXTURE_ZIP` is set |
 | `internal/e2e` | golden-output suite: builds the real (instrumented) binary in `TestMain` and compares exit code + stdout + stderr byte-for-byte |
@@ -126,11 +126,23 @@ do not hand-roll expected strings:
 
 ## Docs
 
-- `README.md` is the source of truth; translations live in
-  `docs/README.{ar,de,es,fr,hi,id,pt,ru,zh-CN}.md`.
+- `README.md` is the canonical user document: a task-oriented router (what it
+  is, who it is for, install per platform, the five main tasks, file-safety
+  behavior, pointers onward). It must stay usable without reading any
+  implementation detail.
+- Depth lives in English-only companions, linked from the README and from every
+  translation: `docs/usage.md` (full CLI reference, exit codes, batch
+  semantics, PSD fidelity, container usage), `docs/troubleshooting.md`
+  (symptom/cause/fix), `docs/how-it-works.md` (internals, format notes),
+  `docs/development.md` (build, test, release, CI).
+- Translations live in `docs/README.{ar,de,es,fr,hi,id,pt,ru,zh-CN}.md` and
+  mirror `README.md` section for section, with the same commands, the same
+  output examples and the same warnings.
 - Mechanical wording changes (sample output blocks, stderr descriptions,
   option tables) must be applied to **all** translations; free prose may be
   left to translators.
+- Do not move user-facing essentials out of `README.md` into the companions,
+  and do not pull implementation detail back into it.
 - Sample outputs in docs must be **authentic**: capture them from a real
   `procreepy` binary run, never invent them.
 - Anything worth documenting (behavior, caveats, platform quirks) belongs in
@@ -141,13 +153,18 @@ do not hand-roll expected strings:
 ## CI (GitLab `.gitlab-ci.yml` is the structural reference; GitHub
 `.github/workflows/ci.yml` mirrors it job for job)
 
-Stages: test (`make check` + `make coverage` -> Cobertura report, SAST, plus
-a native Windows smoke job — build, vet and test with the same hermetic flags;
-GitLab `test:windows` needs a self-hosted runner tagged `windows`, GitHub
-`test-windows` runs on `windows-latest`),
+Stages: images (`build:winci-image` — kaniko-built Wine test image, fires only
+on `ci/windows-wine/**` changes), test (`make check` + `make coverage` ->
+Cobertura report, SAST, plus a Windows smoke job — build, vet and test with the
+same hermetic flags against a real windows/amd64 binary; GitHub `test:windows`
+runs natively on `windows-latest`, GitLab `test:windows` runs the same suite
+under Wine because the project has Linux runners only — see
+`ci/windows-wine/README.md`; it is `allow_failure: true` and gated to
+Windows-relevant changes),
 build (`make release` x matrix: linux amd64/arm64/arm, windows amd64/arm64,
 darwin amd64/arm64; normalized reproducible tarballs), verify (SHA256SUMS
-manifest + `make repro` on glibc vs musl, bit-for-bit proof), release
+manifest + `make repro` on glibc vs musl, bit-for-bit proof — both legs must be
+given the same `VERSION`, or the stamp alone makes them differ), release
 (GitLab-only semantic-release tagger on main; `goreleaser release` per tag
 on both hosts). GitHub encodes the stage order with `needs:` (no stages);
 its SAST is CodeQL, coverage ships as an artifact, and there is no native

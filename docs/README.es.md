@@ -1,373 +1,389 @@
 # procreepy
 
-Una pequeña utilidad multiplataforma (Linux, Windows, macOS): extrae el
-timelapse de archivo ya preparado de un `.procreate` y une sus segmentos en
-un solo MP4. No recodifica nada (stream copy) ni renderiza nada.
+Convierte en un MP4 normal el timelapse que Procreate ya grabó dentro de tu
+archivo `.procreate`.
 
-`.procreate` es un archivo ZIP. Si la grabación del timelapse estaba activada,
-contiene
+- Sin recodificar: los fotogramas se copian, así que el vídeo conserva la calidad de Procreate.
+- Tus archivos `.procreate` originales nunca se modifican.
+- Un archivo o una carpeta entera de una vez.
+- Un solo programa. Sin ffmpeg, sin Python, sin cuenta, sin nada que configurar.
+- Funciona sin conexión en Windows, macOS y Linux.
+
+## ¿Es para ti?
+
+Usa procreepy si:
+
+- tienes archivos `.procreate`;
+- la **grabación de timelapse estaba activada** mientras dibujabas (en Procreate
+  lo está por defecto);
+- quieres ese timelapse como un MP4 que puedas subir, editar o guardar;
+- o quieres quitar los datos del timelapse de tus proyectos para que ocupen menos.
+
+procreepy **no puede**:
+
+- crear un timelapse que nunca se grabó: solo extrae uno existente;
+- reconstruir un timelapse a partir de tus capas o del historial de deshacer;
+- reparar un archivo `.procreate` dañado;
+- exportar una imagen final de tu obra (sí puede exportar un PSD por capas, ver
+  [Exportar a PSD](#exportar-a-psd)).
+
+¿No sabes si tu archivo tiene timelapse?
+[Compruébalo primero](#comprobar-un-archivo-antes-de-convertirlo): es un comando
+y no crea nada.
+
+## Qué obtienes
+
+Un archivo de entrada, un vídeo de salida:
 
 ```text
-video/segments/segment-1.mp4
-video/segments/segment-2.mp4
-...
-```
-La utilidad toma exactamente estos archivos: los ordena **numéricamente**
-(`segment-9` antes que `segment-10`), analiza la estructura MP4 de cada segmento
-y los reconstruye en un único MP4 moov-first copiando los fotogramas tal cual.
-En modo por lotes también escribe, para cada obra convertida, una copia del
-proyecto lista para volver a importarse sin el timelapse y — con `--psd` —
-un PSD de Photoshop con capas. El camino del timelapse nunca abre
-`Document.archive`, las capas ni los fragmentos raster (`*.lz4`); solo
-`--psd` lo hace.
-
-## Requisitos
-
-No hay dependencias externas: no se necesitan `ffmpeg` ni `ffprobe`. Para compilar solo se necesitan Go (la versión está en `go.mod`) y `make` (presente en todas las plataformas compatibles; en sistemas mínimos se instala con el gestor de paquetes).
-El Makefile es la entrada canónica para la compilación: fija el mismo entorno hermético que usa CI (modo offline para módulos, toolchain local, sin cgo) y localiza automáticamente la toolchain de Go.
-
-```bash
-make build      # compilar todo y generar un ./procreepy ejecutable
-make check      # gofmt + compilación + vet + suite completa de pruebas
+my-art.procreate  →  procreepy  →  my-art.mp4
 ```
 
-`make build` marca el binario con `dev-<short sha>` (fuera de un checkout de Git: `dev-nogit`), de modo que `procreepy --version` indica de dónde procede (los tarballs de release llevan la etiqueta en su lugar). Sin `make`, el equivalente directo es `go build ./... && go build -o procreepy ./cmd/procreepy` (ese binario informa `dev`, o `dev-<commit>` cuando el stamping de VCS está disponible).
+Una carpeta de entrada, dos carpetas de salida:
 
-### Compilar para otros sistemas operativos
+```text
+input/                          output/
+├── Cat.procreate         →     ├── timelapses/
+├── Landscape.procreate   →     │   ├── Cat.mp4
+└── Sketch.procreate      →     │   ├── Landscape.mp4
+                                │   └── Sketch.mp4
+                                └── projects/
+                                    ├── Cat.procreepy.procreate
+                                    ├── Landscape.procreepy.procreate
+                                    └── Sketch.procreepy.procreate
+```
 
-El proyecto está escrito en Go puro y se puede compilar de forma cruzada para todos los destinos admitidos. Desde cualquier plataforma:
+- `timelapses/` contiene los vídeos.
+- `projects/` contiene una copia de cada obra **con el timelapse eliminado**:
+  mucho más pequeña, y puedes volver a importarla en Procreate. Todo lo demás del
+  proyecto se conserva byte a byte.
+- `input/` queda exactamente como estaba.
 
-| Destino | Comando |
+## Instalación
+
+Descarga un programa ya compilado para tu sistema desde la página de releases;
+no necesitas Go ni herramientas de compilación.
+
+- GitLab: https://gitlab.com/po1nt-1/procreepy/-/releases
+- GitHub: https://github.com/po1nt-1/procreepy/releases
+
+Elige el archivo que corresponda a tu ordenador:
+
+| Tu sistema | Descarga |
 |---|---|
-| Linux x86-64 | `make release GOOS=linux GOARCH=amd64` |
-| Linux ARM de 64 bits (Raspberry Pi, Graviton) | `make release GOOS=linux GOARCH=arm64` |
-| Linux ARM de 32 bits | `make release GOOS=linux GOARCH=arm` |
-| Windows x86-64 (10/11) | `make release GOOS=windows GOARCH=amd64` |
-| Windows ARM de 64 bits | `make release GOOS=windows GOARCH=arm64` |
-| macOS Intel | `make release GOOS=darwin GOARCH=amd64` |
-| macOS Apple Silicon (M1–M5) | `make release GOOS=darwin GOARCH=arm64` |
-Cada destino genera un `dist/procreepy-<version>-<os>-<arch>.tar.gz` normalizado y muestra su SHA-256; `make cross` compila toda la matriz de una vez y `make repro` demuestra que una compilación es reproducible bit a bit. El equivalente directo para un destino es `GOOS=… GOARCH=… go build -o procreepy[.exe] ./cmd/procreepy`.
-Todas las compilaciones son estáticas (sin cgo): un binario de Linux se ejecuta en cualquier distribución, independientemente de su versión de glibc. Las canalizaciones de CI (GitLab y GitHub) compilan exactamente estos destinos en cada commit y, dado que Windows es la plataforma principal, ejecutan además la suite completa de pruebas contra el binario `windows/amd64` real: de forma nativa en el runner alojado de GitHub y bajo Wine en GitLab, que solo tiene runners de Linux (véase `ci/windows-wine/`); el trabajo `dist` publica los tarballs junto con un manifiesto `SHA256SUMS`, y los trabajos `repro:*` demuestran la reproducibilidad bit a bit de los binarios.
+| Windows (la mayoría de PC) | `procreepy_<version>_windows_amd64.zip` |
+| Windows en ARM | `procreepy_<version>_windows_arm64.zip` |
+| Mac con Apple Silicon (M1–M5) | `procreepy_<version>_darwin_arm64.tar.gz` |
+| Mac con Intel | `procreepy_<version>_darwin_amd64.tar.gz` |
+| Linux (la mayoría de PC) | `procreepy_<version>_linux_amd64.tar.gz` |
+| Linux en ARM (Raspberry Pi, Graviton) | `procreepy_<version>_linux_arm64.tar.gz` |
+| Linux en ARM de 32 bits | `procreepy_<version>_linux_arm.tar.gz` |
 
-- Linux/macOS: no hay paso de instalación; ejecuta el binario directamente.
-- Windows: el binario no está firmado, por lo que SmartScreen puede mostrar «Protegió su PC» — elige **Más información → Ejecutar de todos modos**.
+En un Mac, menú Apple → «Acerca de este Mac» te dice si tienes Apple Silicon o
+Intel.
 
-## Ejecución en un contenedor
+### Windows
 
-Cada etiqueta de versión publica además una imagen multiarquitectura (`linux/amd64`, `linux/arm64`) en el registro del proyecto, así que la CLI se ejecuta sin cadena de herramientas de Go y sin descomprimir ningún tarball. Esto cubre también Apple Silicon: Docker Desktop y `podman machine` levantan una máquina virtual `linux/arm64` en un Mac de la serie M, por lo que la variante arm64 se selecciona automáticamente, sin la opción `--platform` y sin emulación.
+1. Descarga `procreepy_<version>_windows_amd64.zip`.
+2. Clic derecho en el archivo descargado → **Extraer todo** → elige una carpeta
+   que puedas encontrar después, por ejemplo `Downloads\procreepy`.
+3. Abre esa carpeta, haz clic en la barra de direcciones de arriba, escribe `cmd`
+   y pulsa Enter. Se abre una ventana negra de símbolo del sistema en esa carpeta.
+4. Pon un archivo `.procreate` en la misma carpeta y ejecuta:
+
+   ```text
+   procreepy.exe "My Artwork.procreate" "My Artwork.mp4"
+   ```
+
+   Las comillas solo importan si el nombre tiene espacios.
+
+**Sobre el aviso de SmartScreen.** El programa no está firmado con un
+certificado de pago de Microsoft, así que la primera vez Windows puede mostrar
+una ventana azul: «Windows protegió su PC», con una «aplicación no reconocida».
+No es un aviso de virus: Windows lo muestra con cualquier programa que todavía no
+ha visto suficientes veces. Para continuar, pulsa **Más información** y luego el
+botón **Ejecutar de todas formas**. Si prefieres no hacerlo, usa la
+[imagen de contenedor](#docker--podman).
+
+### macOS
+
+1. Descarga el `.tar.gz` de tu chip (`darwin_arm64` para Apple Silicon,
+   `darwin_amd64` para Intel).
+2. Abre Terminal (Aplicaciones → Utilidades → Terminal) y ve a tu carpeta de
+   descargas:
+
+   ```bash
+   cd ~/Downloads
+   ```
+
+3. Descomprime y permite su ejecución:
+
+   ```bash
+   tar -xzf procreepy_*_darwin_*.tar.gz
+   xattr -d com.apple.quarantine ./procreepy
+   ```
+
+   La línea `xattr` quita la marca de cuarentena de las descargas. Sin ella macOS
+   se niega a arrancar el programa, porque no está notarizado por Apple.
+
+4. Convierte un archivo:
+
+   ```bash
+   ./procreepy "My Artwork.procreate" "My Artwork.mp4"
+   ```
+
+Para poder escribir `procreepy` desde cualquier sitio, muévelo al PATH:
+`sudo mv ./procreepy /usr/local/bin/`.
+
+### Linux
 
 ```bash
-# un solo archivo: monte el directorio actual y use rutas dentro de él
+tar -xzf procreepy_*_linux_amd64.tar.gz
+./procreepy artwork.procreate artwork.mp4
+```
+
+El programa está enlazado estáticamente, así que funciona en cualquier
+distribución independientemente de su versión de glibc. Para instalarlo para
+todos los usuarios: `sudo install -m 755 procreepy /usr/local/bin/`.
+
+### Docker / Podman
+
+En cada release se publica una imagen de contenedor para `linux/amd64` y
+`linux/arm64`. En un Mac con Apple Silicon se selecciona automáticamente la
+variante arm64.
+
+```bash
 docker run --rm -v "$PWD":/data -w /data \
   registry.gitlab.com/po1nt-1/procreepy:latest artwork.procreate artwork.mp4
-
-# modo por lotes: una carpeta de entrada, una carpeta de salida
-docker run --rm -v "$PWD":/data -w /data \
-  registry.gitlab.com/po1nt-1/procreepy:latest input/ output/
-
-# stdin → stdout no necesita ningún montaje
-docker run --rm -i registry.gitlab.com/po1nt-1/procreepy:latest - \
-  < artwork.procreate > artwork.mp4
 ```
 
-`podman` sustituye a `docker` sin cambios. Para fijar una versión use `:1.2.3` en lugar de `:latest` (las etiquetas de imagen no llevan el prefijo `v`); `latest` nunca se mueve a una etiqueta de prelanzamiento.
+`podman` sustituye a `docker` sin cambios. Para fijar una versión usa `:0.3.0` en
+lugar de `:latest` (las etiquetas de imagen no llevan el prefijo `v`). Detalles
+sobre la propiedad de los archivos y demás en
+[usage.md](usage.md#container-usage).
 
-- **Propiedad de los archivos.** La imagen se ejecuta con uid 65532 (`distroless/static:nonroot`). En un host Linux añada `--user "$(id -u):$(id -g)"` para que los archivos de salida le pertenezcan; Docker Desktop en macOS asigna la propiedad del montaje por sí mismo y no necesita nada.
-- **Sin shell dentro.** La imagen contiene solo el binario estático, por lo que `docker run … --help` o `… --verify file.procreate` funcionan, pero no hay ninguna `sh` a la que entrar.
-- **Los archivos temporales** van a la capa escribible del contenedor, no al montaje. Un timelapse grande puede necesitar espacio allí; `--tmpdir /data/tmp` los traslada al volumen montado.
-- **Proyectos privados.** El acceso al registro sigue la visibilidad del proyecto: en un proyecto público el pull es anónimo; en caso contrario, ejecute primero `docker login registry.gitlab.com`.
+### Compilar desde el código fuente
 
-## Uso
+Solo es necesario si quieres cambiar el código. Ver
+[development.md](development.md).
 
-Un archivo:
+### Verificar la descarga (opcional)
+
+Cada release publica también `CHECKSUMS.txt`. Para confirmar que la descarga
+llegó íntegra, muestra el hash de tu archivo y compáralo con la línea
+correspondiente:
+
+```bash
+sha256sum procreepy_0.3.0_linux_amd64.tar.gz    # Linux
+shasum -a 256 procreepy_0.3.0_darwin_arm64.tar.gz   # macOS
+grep darwin_arm64 CHECKSUMS.txt                 # el valor esperado
+```
+
+En Windows: `certutil -hashfile procreepy_0.3.0_windows_amd64.zip SHA256`.
+
+Los dos valores deben ser idénticos. Es un paso opcional: detecta una descarga
+truncada o manipulada, nada más.
+
+## Convertir un archivo
 
 ```bash
 procreepy artwork.procreate artwork.mp4
-procreepy artwork.procreate > artwork.mp4
-cat artwork.procreate | procreepy - > artwork.mp4
-procreepy --list artwork.procreate
-procreepy --verify artwork.procreate
 ```
-Se admiten las cuatro combinaciones `INPUT`/`OUTPUT`:
-`FILE OUTPUT`, `FILE -`, `- OUTPUT`, `- -`. Si se omite `OUTPUT`, se usa stdout.
-Si `OUTPUT` es un directorio existente, el vídeo se coloca allí con el nombre
-original (`procreepy art.procreate videos/` → `videos/art.mp4`).
 
-### Modo por lotes: una carpeta de `.procreate` → carpetas de vídeos y proyectos
+Resultado:
 
-El escenario «tengo `input/` lleno de archivos `.procreate` y quiero los
-resultados en `output/`»:
+```text
+artwork.mp4
+```
+
+El original `artwork.procreate` no se modifica. Si `artwork.mp4` ya existe, se
+reemplaza, pero solo después de haber escrito el vídeo nuevo por completo.
+
+También puedes darle una carpeta como destino y dejar que procreepy ponga el
+nombre:
+
+```bash
+procreepy artwork.procreate videos/
+```
+
+Resultado: `videos/artwork.mp4`. La carpeta debe existir ya.
+
+## Convertir una carpeta
 
 ```bash
 procreepy input/
 ```
 
-Cada obra convertida produce una pareja — el timelapse y un proyecto
-reinportable sin él:
-
-```text
-input/                               output/
-├── Portrait of a Cat.procreate  →   ├── timelapses/Portrait of a Cat.mp4
-│                                    ├── projects/Portrait of a Cat.procreepy.procreate
-├── Landscape v2.procreate       →   ├── timelapses/Landscape v2.mp4
-│                                    └── projects/Landscape v2.procreepy.procreate
-└── No Timelapse.procreate              (omitido con una advertencia — nada escrito)
-```
-- **Nombres**: `<nombre original sin .procreate>`, con `.mp4` o
-  `.procreepy.procreate` añadido. Los espacios, el cirílico y los caracteres
-  especiales se conservan tal cual; en un sistema de archivos que no distingue
-  entre mayúsculas y minúsculas, los nombres que difieren solo en esa clase
-  reciben los sufijos `-2`, `-3`, …
-- **Carpeta de salida**: por defecto `output/`, relativa al directorio actual,
-  se crea automáticamente. Se puede indicar otra como segundo argumento:
-  `procreepy input/ ~/Videos/procreate`.
-- **El proyecto aligerado**: `projects/NAME.procreepy.procreate` es el mismo
-  archivo sin los miembros `video/segments/segment-N.mp4`; todos los demás
-  miembros se conservan byte a byte (orden, métodos de compresión, marcas de
-  tiempo). El proyecto conserva la fecha y hora de modificación de su origen,
-  de modo que volver a importarlo en Procreate no desordena la galería.
-- **Volver a ejecutar es seguro**: una entrada cuyo timelapse y proyecto ya
-  existen se omite; una pareja a medias se reconstruye en su totalidad. Para
-  reconstruirlo todo: `--force` (`-f`).
-- **`-r`** también desciende a las subcarpetas; su estructura se replica en
-  ambos árboles, por lo que los nombres idénticos en carpetas distintas no
-  entran en conflicto.
-- **Un archivo defectuoso no detiene los demás.** Un archivo sin timelapse (la
-  grabación estaba desactivada) es una advertencia, no un error: para él no se
-  escribe nada. Un archivo corrupto es un error: aparece en el resumen final y
-  el código de salida pasa a ser `1`.
-- **Conjuntos atómicos**: las salidas de una entrada (timelapse + proyecto, y
-  con `--psd` también el PSD) se escriben en archivos temporales y se publican
-  juntos, o no se publican en absoluto. Una ejecución fallida nunca deja un
-  vídeo huérfano junto a un proyecto que falta.
-- Los archivos ocultos (`._Foo.procreate`, que macOS deja al copiar) se ignoran.
-- Los originales nunca se modifican.
-
-Ejemplo de salida (todo va a stderr; la ejecución termina con código de salida
-`1` por el archivo corrupto):
-
-```text
-level=INFO msg="batch conversion started" files=4 input=input/ timelapses=output/timelapses/ projects=output/projects/
-level=ERROR msg="file conversion failed" input="input/Corrupt file.procreate" err="input is not a valid ZIP archive: input/Corrupt file.procreate (not a .procreate file, or truncated/corrupted)"
-level=INFO msg=converted input="input/Landscape v2.procreate" timelapse="output/timelapses/Landscape v2.mp4" project="output/projects/Landscape v2.procreepy.procreate" removed_segments=17 video_size="6.7 MiB"
-level=WARN msg="no timelapse video inside, skipped" input="input/No Timelapse.procreate"
-level=INFO msg=converted input="input/Portrait of a Cat.procreate" timelapse="output/timelapses/Portrait of a Cat.mp4" project="output/projects/Portrait of a Cat.procreepy.procreate" removed_segments=18 video_size="4.1 MiB"
-level=INFO msg="batch completed" converted=2 existed=0 no_video=1 failed=1
-```
-
-`removed_segments` es el número de archivos de segmento retirados del proyecto
-aligerado, y `video_size` su tamaño total (comprimido) dentro del archivo.
-Ejecutar de nuevo el mismo comando informa, para cada pareja existente:
-
-```text
-level=INFO msg="skipped, outputs already exist (use --force to overwrite)" input="input/Landscape v2.procreate" timelapse="output/timelapses/Landscape v2.mp4" project="output/projects/Landscape v2.procreepy.procreate"
-```
-
-`--list` y `--verify` también aceptan un directorio y recorren todos sus archivos.
-
-### Exportación PSD (`--psd`)
+Lee todos los `.procreate` de `input/` y escribe en `output/`, como se muestra en
+[Qué obtienes](#qué-obtienes). Para elegir el destino tú mismo:
 
 ```bash
-procreepy --psd input/ out/
+procreepy input/ ~/Videos/timelapses
 ```
 
-Solo entrada de directorio. Junto a cada pareja convertida se escribe
-`out/psd/NAME.psd`, publicado de forma atómica con el resto del conjunto:
+Para incluir subcarpetas (su estructura se refleja en la salida):
 
-```text
-level=INFO msg="psd exported" input="input/Portrait of a Cat.procreate" psd="out-psd/psd/Portrait of a Cat.psd" layers=3
+```bash
+procreepy -r input/ output/
 ```
 
-Lo que incluye el PSD:
+Qué ocurre mientras se ejecuta:
 
-- el árbol de capas (grupos, orden), nombres de capa (Unicode), visibilidad,
-  opacidad, modos de fusión, límites y estado de bloqueo;
-- píxeles RGBA de 8 bits para cada capa, comprimidos con PackBits;
-- los DPI y el perfil ICC incrustado;
-- un compuesto fusionado tomado tal cual del propio render aplanado de
-  Procreate (cuando este falta o está dañado, las capas visibles se componen en
-  modo Normal como aproximación).
+- El progreso se informa por archivo, una línea cada uno.
+- Un archivo cuyo timelapse nunca se grabó se **omite con una advertencia**. No
+  se escribe nada para él y la ejecución continúa.
+- Un archivo dañado se informa como error, la ejecución sigue con el resto y el
+  comando termina con código de salida `1` para que los scripts lo detecten.
+- Ejecutar el mismo comando dos veces no repite el trabajo hecho: las obras cuyos
+  resultados ya están se omiten. Añade `-f` para regenerarlas igualmente.
 
-Lo que no incluye — el PSD es una exportación, no un ida y vuelta sin
-pérdidas:
+## Comprobar un archivo antes de convertirlo
 
-- las máscaras de capa y la semántica exacta del clip sobre la capa inferior no
-  sobreviven;
-- las capas de texto conservan sus píxeles, pero no sus datos de texto
-  editables;
-- el alfa directo (no premultiplicado) no puede recuperarse con exactitud:
-  Procreate almacena teselas de 8 bits premultiplicadas, por lo que los colores
-  de contorno en los bordes de las capas pueden diferir ligeramente;
-- los lienzos más anchos o altos de 30000 píxeles se rechazan de plano (límite
-  del formato PSD, a diferencia de PSB).
+Ninguno de estos comandos crea vídeo ni cambia nada.
 
-El proyecto `.procreate` sigue siendo la copia maestra; trata el PSD como un
-instantáneo para Photoshop y otros importadores.
-
-### Diagnóstico
+**¿Hay un timelapse en este archivo, y de qué duración?**
 
 ```bash
 procreepy --list artwork.procreate
 ```
 
 ```text
-input: input/Portrait of a Cat.procreate
+input: artwork.procreate
 segments: 18
 
 1  video/segments/segment-1.mp4
 2  video/segments/segment-2.mp4
-3  video/segments/segment-3.mp4
 ...
-17 video/segments/segment-17.mp4
-18 video/segments/segment-18.mp4
 ```
+
+`--list` lee el índice del archivo. Es instantáneo y te dice si hay timelapse.
+
+**¿Funcionará realmente la conversión?**
 
 ```bash
 procreepy --verify artwork.procreate
 ```
-Analiza cada segmento directamente desde el archivo (incluida la comprobación
-de CRC dentro del ZIP), muestra un informe línea por línea y comprueba que los
-segmentos se pueden unir sin recodificar. **No se crea ningún vídeo de salida.**
-`--list` solo lee el directorio del ZIP.
 
-## Opciones
+`--verify` va más allá: lee cada segmento del timelapse, comprueba si está
+dañado y confirma que los segmentos se pueden unir sin recodificar. Más lento que
+`--list`, y la respuesta honesta a «¿esto se convertirá bien?».
 
-| Opción | Qué hace |
+Ambos aceptan también una carpeta, y entonces informan de cada archivo que
+contiene.
+
+## Exportar a PSD
+
+```bash
+procreepy --psd input/ output/
+```
+
+Junto a cada vídeo y proyecto ligero se escribe `output/psd/NAME.psd`: un archivo
+de Photoshop por capas que puedes abrir en Photoshop, Affinity Photo, GIMP y
+similares.
+
+`--psd` funciona **solo con una carpeta de entrada**. Con un archivo suelto se
+detiene con `--psd needs a directory INPUT; it writes into OUTPUT/psd/`.
+
+El PSD es una exportación, no una copia perfecta. Conserva el árbol de capas y
+sus nombres, la visibilidad, la opacidad, los modos de fusión y la propia imagen;
+**no** conserva las máscaras de capa, las relaciones de recorte ni el texto
+editable. Lee [qué conserva y qué pierde el PSD](usage.md#export-a-psd) antes de
+usarlo para trabajo final. Guarda el archivo `.procreate` como copia maestra.
+
+## Qué ocurre con tus archivos
+
+- **Tus originales nunca se modifican.** procreepy abre los `.procreate` en modo
+  de solo lectura. Todo lo que produce se escribe en otro sitio.
+- **Nada queda a medio escribir.** Cada resultado se construye primero en un
+  archivo temporal y se coloca en su sitio solo cuando está completo. Una
+  ejecución interrumpida o fallida nunca deja un vídeo roto ni daña un archivo
+  que ya existía.
+- **Las ejecuciones por carpeta publican por obra, como conjunto.** El vídeo, el
+  proyecto ligero y el PSD de una obra aparecen juntos o no aparecen: nunca
+  obtienes un vídeo sin su proyecto.
+- **Repetir la ejecución es seguro.** Las obras terminadas se omiten. Un conjunto
+  que quedó incompleto por una ejecución interrumpida se regenera completo. `-f`
+  regenera todo.
+- **Convertir un archivo reemplaza el destino** si existe, después de escribir el
+  vídeo nuevo por completo.
+- **Los archivos grandes necesitan espacio temporal.** Los timelapses grandes se
+  montan a través de un archivo temporal. Si te quedas sin espacio, apunta
+  `--tmpdir` a un disco más holgado.
+
+## Si algo va mal
+
+| Lo que ves | Qué significa |
 |---|---|
-| `-h`, `--help` | mostrar la ayuda y salir |
-| `--list` | listar los segmentos en orden de reproducción y salir |
-| `--verify` | comprobar cada segmento; no crear ningún vídeo de salida |
-| `-r`, `--recursive` | con una carpeta de entrada: recorrer también las subcarpetas |
-| `-f`, `--force` | con una carpeta de entrada: sobrescribir las salidas que ya existen |
-| `--strict` | tratar los números de segmento que faltan como un error (por defecto, advertencia) |
-| `--psd` | con una carpeta de entrada: exportar además un PSD con capas por obra |
-| `--tmpdir DIR` | dónde colocar los archivos temporales (por defecto: `$TMPDIR`, luego `/var/tmp`, luego el directorio temporal del sistema) |
-| `-q`, `--quiet` | mostrar solo advertencias y errores |
-| `--version` | mostrar el número de versión y salir |
-| `--` | detener el análisis de opciones; tratar el resto como posicional |
+| `procreepy: command not found` | No estás en la carpeta donde lo descomprimiste; en macOS/Linux usa `./procreepy`. |
+| `no video/segments in the archive` | En ese archivo no se grabó timelapse. No se puede recuperar. |
+| `input is not a valid ZIP archive` | No es un archivo `.procreate`, o la descarga/copia está truncada. |
+| `segment ... is corrupted inside the archive` | Los datos del timelapse están dañados. |
+| `segments are incompatible` | El timelapse se grabó atravesando un cambio de lienzo o de calidad, así que no se puede unir sin recodificar. |
+| `refusing to write video data to a terminal` | Añade un nombre de archivo de destino, o redirige con `> out.mp4`. |
+| `Windows protegió su PC` | Ver [la nota sobre SmartScreen](#windows). |
+| `no space left` / errores de escritura | Usa `--tmpdir` en un disco con más espacio libre. |
+
+Cada uno de estos casos, con el síntoma exacto y qué hacer, está en
+[troubleshooting.md](troubleshooting.md).
+
+## Referencia de comandos
+
+```text
+procreepy [options] INPUT [OUTPUT]
+```
+
+`INPUT` es un archivo `.procreate`, una carpeta de ellos, o `-` para la entrada
+estándar. `OUTPUT` es un nombre de archivo, una carpeta, o `-` para la salida
+estándar. Para un archivo suelto, omitir `OUTPUT` escribe el vídeo en la salida
+estándar; para una carpeta, el valor por defecto es `output/`.
+
+| Opción | Qué hace | Se aplica a |
+|---|---|---|
+| `-h`, `--help` | mostrar la ayuda y salir | siempre |
+| `--version` | mostrar la versión y salir | siempre |
+| `--list` | listar los segmentos del timelapse; no escribir vídeo | archivo o carpeta |
+| `--verify` | comprobar cada segmento; no escribir vídeo | archivo o carpeta |
+| `-r`, `--recursive` | procesar también las subcarpetas | solo entrada de carpeta |
+| `-f`, `--force` | sobrescribir resultados que ya existen | solo entrada de carpeta |
+| `--psd` | exportar además un PSD por capas de cada obra | solo entrada de carpeta |
+| `--strict` | tratar los huecos en la numeración de segmentos como errores, no advertencias | archivo o carpeta |
+| `--tmpdir DIR` | dónde poner los archivos temporales | siempre |
+| `-q`, `--quiet` | imprimir solo advertencias y errores | siempre |
+| `--` | dejar de leer opciones; tratar el resto como nombres de archivo | siempre |
+
+Referencia completa con ejemplos, formatos de salida y códigos de salida:
+[usage.md](usage.md).
 
 ## Cómo funciona
 
-1. `INPUT` es un archivo o stdin. Stdin (y cualquier entrada no buscable) se
-   vuelca primero a un archivo temporal, porque ZIP requiere acceso aleatorio.
-2. Se valida el ZIP (solo lectura) y se localizan las entradas
-   `video/segments/segment-N.mp4`.
-3. Ordenación numérica. Los huecos en la numeración son una advertencia; los
-   nombres sin número se ignoran con una advertencia.
-4. Cada segmento se analiza directamente desde el ZIP (sin extraerlo por completo):
-   cajas MP4, tamaños de pista y parámetros del códec. Ante la primera
-   corrupción, se detiene el proceso.
-5. Comprobación de compatibilidad (resolución, códec, conjuntos SPS/PPS, audio).
-   De lo contrario, `-c copy` produciría basura silenciosamente; por eso una
-   incompatibilidad es un error con un mensaje claro, no una sorpresa en el
-   vídeo terminado.
-6. Se ensambla el MP4 moov-first: `ftyp`, `moov` (todas las pistas, recortadas
-   de los segmentos) y después `mdat` tras `mdat`, en orden de reproducción.
-7. Todo lo que la ejecución promete (el MP4, el proyecto aligerado, el PSD) se
-   prepara en archivos temporales y se publica como un único conjunto solo
-   después de que el último tenga éxito; en modo por lotes, la siguiente
-   entrada se intenta de todos modos.
-8. El archivo temporal, si existe, se elimina siempre — tras un éxito, un error,
-   Ctrl+C o SIGTERM.
+Un archivo `.procreate` es un archivo ZIP. Cuando la grabación de timelapse está
+activada, Procreate guarda el vídeo terminado dentro, dividido en trozos
+numerados (`video/segments/segment-1.mp4`, `segment-2.mp4`, …). procreepy lee
+esos trozos directamente del archivo, los ordena por número, comprueba que
+comparten códec y lienzo, y los cose en un único MP4 copiando los fotogramas sin
+tocarlos. No se renderiza ni se recodifica nada, y por eso es rápido y sin
+pérdidas.
 
-### Escritura a un archivo y a stdout
+La ruta del timelapse nunca mira tus capas. Solo `--psd` lee la obra en sí.
 
-Ambas vías ensamblan el mismo MP4 moov-first: el átomo moov se escribe primero,
-porque los fotogramas se copian directamente de los segmentos de origen y los
-metadatos ya se conocen antes de empezar a escribir. Para un archivo es un MP4
-«clásico», adecuado tanto para reproductores como para editores; exactamente el
-mismo archivo se envía a una tubería — `> artwork.mp4` produce el mismo resultado
-que un `procreepy artwork.procreate artwork.mp4` explícito.
-  * **Salida a archivo** es atómica: se crea un `.partial` junto al destino y se
-    renombra solo tras el éxito. Una ejecución fallida no deja restos ni corrompe
-    un archivo existente.
-  * Particularidad de Windows: el renombrado final es un `MoveFileEx` con
-    reemplazo del destino existente, de modo que `--force` y la regeneración
-    de un conjunto incompleto sustituyen los archivos de salida existentes
-    in situ, igual que en Unix. No es estrictamente atómico como el rename de
-    POSIX; la diferencia práctica aparece en un solo caso: si el destino
-    sigue abierto en otro programa (por ejemplo, un reproductor con el MP4
-    anterior abierto), el renombrado se rechaza con un error legible
-    `Access is denied`, el archivo antiguo queda intacto y una nueva
-    ejecución después de cerrar el programa finaliza con éxito.
-  * stdout nunca se contamina con texto. Todas las líneas de registro
-    (`level=INFO`/`WARN`/`ERROR`, un registro estructurado key=value por línea)
-    van a stderr. La única excepción es el informe `--list`/`--verify`, donde
-    stdout es el resultado. Si stdout es un terminal, la utilidad se niega a
-    volcar en él un MP4 binario.
+Detalles — montaje del MP4, escritura atómica, estrategia de archivos temporales,
+fidelidad del PSD: [how-it-works.md](how-it-works.md).
 
-### Colores de consola
+## Desarrollo
 
-Cuando stderr es un terminal interactivo y la variable de entorno `NO_COLOR`
-no está establecida, los tokens de nivel `WARN` y `ERROR` se pinta (en
-amarillo y en rojo en negrita); `INFO` queda sin color. Las tuberías, las
-redirecciones, la CI y las pruebas conservan el formato plano byte a byte, por
-lo que nada que esté scripteado cambia. Deliberadamente no existe la opción
-`--color`.
+Compilación, pruebas, cobertura, compilación cruzada, release y CI:
+[development.md](development.md).
 
-### Archivos temporales y Fedora
-
-En Fedora, `/tmp` es un tmpfs en RAM. Los segmentos de timelapse pueden ocupar
-cientos de megabytes y, al leer desde stdin, se vuelca todo el `.procreate`.
-Por eso, el directorio temporal se elige así: `--tmpdir` → `$TMPDIR` →
-`/var/tmp` (en disco) → el directorio predeterminado del sistema. Si el disco
-se llena mientras se vuelca el archivo, se obtiene un error claro con una
-indicación (usar `--tmpdir` en un directorio respaldado por disco más grande)
-en lugar de un simple «No space left».
-
-## Códigos de salida
-
-| Código | Significado |
-|---|---|
-| 0 | éxito |
-| 1 | error inesperado; en modo por lotes — al menos un archivo falló |
-| 2 | argumentos incorrectos (incluido `--psd` con un solo archivo, o un directorio de resultados dirigido a stdout); OUTPUT es el mismo archivo que INPUT; stdout es un terminal |
-| 3 | entrada no encontrada, vacía o no es un ZIP |
-| 4 | no hay `video/segments` en el archivo (no se grabó ningún timelapse) |
-| 5 | segmento corrupto; numeración ambigua o ausente (`--strict`) |
-| 6 | reservado (no se usa: no hay dependencias externas) |
-| 7 | los segmentos son incompatibles para stream copy |
-| 8 | reservado (no se usa: no hay dependencias externas) |
-| 9 | no se pudo escribir el resultado o los archivos temporales |
-| 130 | interrumpido (Ctrl+C / SIGTERM) |
-
-## Pruebas
+Los requisitos son Go (la versión está en [`go.mod`](../go.mod)) y `make`. El
+proyecto no tiene dependencias de terceros.
 
 ```bash
-make test          # or: go test ./...
+make check   # comprobación de formato + compilación + vet + toda la suite de pruebas
 ```
-No se necesitan archivos `.procreate` reales: las pruebas construyen ZIP a
-partir de segmentos MP4 generados (véase `internal/testkit`). Las comprobaciones
-son estructurales: análisis del MP4 resultante, orden de las cajas, número de
-muestras y contenido de `mdat`. `-race` no es necesario, pero funciona si hay
-un compilador de C instalado.
-Cubierto: archivo normal, ausencia de `video/segments`, un solo segmento,
-segmentos fuera de orden (`segment-9`/`segment-10`), stdin, stdout, espacios y
-caracteres especiales en los nombres, ZIP corruptos y truncados, MP4 corruptos
-y truncados, daños de CRC, errores de escritura (`/dev/full`), segmentos
-incompatibles y todo el modo por lotes.
-
-## Lo que la utilidad deliberadamente no hace
-
-El camino del timelapse no analiza `Document.archive` (NSKeyedArchive), no
-toca `*.lz4`, no restaura capas ni renderiza la imagen; `--psd` sí analiza el
-documento — para la exportación descrita arriba, con las limitaciones de
-fidelidad descritas allí. Si el timelapse no se grabó en el archivo, esta
-utilidad no puede recuperarlo del historial de dibujo. Nota: `lz4 -t` sobre un
-`.lz4` extraído de un `.procreate` no es una comprobación de integridad — no
-son fotogramas LZ4 independientes.
-
-## Referencias del formato
-
-- Silica Viewer — https://github.com/heyzoish/silica-viewer
-- Silicate — https://github.com/axaril/silicate
-- ProcreateViewer — https://github.com/NothingData/ProcreateViewer
 
 ## Licencia
 
-Apache License 2.0, véase `LICENSE`.
-
----
+Apache License 2.0 — ver [LICENSE](../LICENSE).
 
 ## Idiomas
 
