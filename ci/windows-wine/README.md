@@ -107,3 +107,8 @@ podman push       "$CI_REGISTRY_IMAGE/winci:1.27.1"
   once it's trusted so Windows regressions actually fail the pipeline.
 - `WINEDEBUG=-all` is required: Wine's `fixme:`/`err:` chatter would otherwise
   pollute the byte-exact stdout/stderr the e2e tests assert on.
+- **Wine 9.0 is the floor.** Go's Windows runtime resolves `ProcessPrng` from
+  `bcryptprimitives.dll` before `main`, and Wine gained that DLL in 9.0. On
+  Wine 8 (Debian bookworm) every Go `.exe`, `go.exe` included, aborts with
+  `fatal error: bcryptprimitives.dll not found`. Hence the trixie base and the
+  version guard in the `Containerfile` — keep both if you rebase the image.

@@ -11,7 +11,12 @@
 # Build:  podman build -t procreepy-winci ci/windows-wine
 # Run:    see run-tests.sh / run-tests.hybrid.sh headers.
 
-FROM docker.io/library/debian:bookworm-slim
+# trixie, not bookworm: Go's Windows runtime resolves ProcessPrng from
+# bcryptprimitives.dll at startup (runtime.loadOptionalSyscalls), and Wine
+# only implements that DLL from 9.0 on. bookworm ships Wine 8, where every
+# Go-built .exe — go.exe included — dies before main with
+# "fatal error: bcryptprimitives.dll not found". trixie ships Wine 10.
+FROM docker.io/library/debian:trixie-slim
 
 # Pin to the exact toolchain the project uses (GO_IMAGE: golang:1.27.1).
 # go.mod says `go 1.27` with GOTOOLCHAIN=local, so the version must be 1.27.x.
@@ -28,15 +33,24 @@ ENV DEBIAN_FRONTEND=noninteractive \
     GOFLAGS=-mod=readonly \
     CGO_ENABLED=0
 
-# wine64 + the few tools needed to fetch and unpack the Windows Go toolchain.
+# wine + the few tools needed to fetch and unpack the Windows Go toolchain.
+# The `wine` package pulls the 64-bit implementation itself and owns the
+# /usr/bin/wine entry point the run scripts call, so it is the only one named.
 RUN set -eux; \
     dpkg --add-architecture i386; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
-        wine wine64 \
+        wine \
         ca-certificates curl unzip \
         procps; \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/*; \
+    wine --version; \
+    # Fail the image build, not every test run, if the base ever regresses to
+    # a Wine without bcryptprimitives.dll (see the FROM comment). wine-10.0
+    # does not match this pattern; wine-8.0.2 does.
+    case "$(wine --version)" in \
+      wine-[1-8].*) echo 'wine >= 9.0 required for Go windows binaries' >&2; exit 1 ;; \
+    esac
 
 # Two Go toolchains of the same pinned version:
 #   /opt/go-win    windows/amd64 — run under Wine (needed by internal/e2e's

@@ -193,6 +193,13 @@ dist:
   variables:
     GOOS: linux
     GOARCH: amd64
+    # Pin the stamped version for both legs instead of letting the Makefile
+    # derive dev-<short sha> from `git rev-parse`: the alpine image ships no
+    # git, so the musl leg stamped dev-nogit while the glibc leg stamped the
+    # real sha, and repro:compare then failed on a difference that proves
+    # nothing. What the proof is about is the toolchain and the base image,
+    # not the version string, so both legs must stamp the same one.
+    VERSION: repro-$CI_COMMIT_SHORT_SHA
 
 repro:glibc:
   extends: .repro-build
@@ -200,7 +207,7 @@ repro:glibc:
   variables:
     FLAVOR: glibc
   script:
-    - make repro FLAVOR=glibc
+    - make repro FLAVOR=glibc VERSION="$VERSION"
   artifacts:
     paths:
     - repro-glibc.sha256
@@ -214,7 +221,7 @@ repro:musl:
     # The alpine image ships no make. Installing it does not affect the
     # proof: pure Go, no cgo, -trimpath.
     - apk add --no-cache make
-    - make repro FLAVOR=musl
+    - make repro FLAVOR=musl VERSION="$VERSION"
   artifacts:
     paths:
     - repro-musl.sha256
