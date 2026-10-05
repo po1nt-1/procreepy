@@ -47,10 +47,35 @@ El proyecto está escrito en Go puro y se puede compilar de forma cruzada para t
 | macOS Intel | `make release GOOS=darwin GOARCH=amd64` |
 | macOS Apple Silicon (M1–M5) | `make release GOOS=darwin GOARCH=arm64` |
 Cada destino genera un `dist/procreepy-<version>-<os>-<arch>.tar.gz` normalizado y muestra su SHA-256; `make cross` compila toda la matriz de una vez y `make repro` demuestra que una compilación es reproducible bit a bit. El equivalente directo para un destino es `GOOS=… GOARCH=… go build -o procreepy[.exe] ./cmd/procreepy`.
-Todas las compilaciones son estáticas (sin cgo): un binario de Linux se ejecuta en cualquier distribución, independientemente de su versión de glibc. Las canalizaciones de CI (GitLab y GitHub) compilan exactamente estos destinos en cada commit y, dado que Windows es la plataforma principal, ejecutan además la suite completa de pruebas de forma nativa en Windows; el trabajo `dist` publica los tarballs junto con un manifiesto `SHA256SUMS`, y los trabajos `repro:*` demuestran la reproducibilidad bit a bit de los binarios.
+Todas las compilaciones son estáticas (sin cgo): un binario de Linux se ejecuta en cualquier distribución, independientemente de su versión de glibc. Las canalizaciones de CI (GitLab y GitHub) compilan exactamente estos destinos en cada commit y, dado que Windows es la plataforma principal, ejecutan además la suite completa de pruebas contra el binario `windows/amd64` real: de forma nativa en el runner alojado de GitHub y bajo Wine en GitLab, que solo tiene runners de Linux (véase `ci/windows-wine/`); el trabajo `dist` publica los tarballs junto con un manifiesto `SHA256SUMS`, y los trabajos `repro:*` demuestran la reproducibilidad bit a bit de los binarios.
 
 - Linux/macOS: no hay paso de instalación; ejecuta el binario directamente.
 - Windows: el binario no está firmado, por lo que SmartScreen puede mostrar «Protegió su PC» — elige **Más información → Ejecutar de todos modos**.
+
+## Ejecución en un contenedor
+
+Cada etiqueta de versión publica además una imagen multiarquitectura (`linux/amd64`, `linux/arm64`) en el registro del proyecto, así que la CLI se ejecuta sin cadena de herramientas de Go y sin descomprimir ningún tarball. Esto cubre también Apple Silicon: Docker Desktop y `podman machine` levantan una máquina virtual `linux/arm64` en un Mac de la serie M, por lo que la variante arm64 se selecciona automáticamente, sin la opción `--platform` y sin emulación.
+
+```bash
+# un solo archivo: monte el directorio actual y use rutas dentro de él
+docker run --rm -v "$PWD":/data -w /data \
+  registry.gitlab.com/po1nt-1/procreepy:latest artwork.procreate artwork.mp4
+
+# modo por lotes: una carpeta de entrada, una carpeta de salida
+docker run --rm -v "$PWD":/data -w /data \
+  registry.gitlab.com/po1nt-1/procreepy:latest input/ output/
+
+# stdin → stdout no necesita ningún montaje
+docker run --rm -i registry.gitlab.com/po1nt-1/procreepy:latest - \
+  < artwork.procreate > artwork.mp4
+```
+
+`podman` sustituye a `docker` sin cambios. Para fijar una versión use `:1.2.3` en lugar de `:latest` (las etiquetas de imagen no llevan el prefijo `v`); `latest` nunca se mueve a una etiqueta de prelanzamiento.
+
+- **Propiedad de los archivos.** La imagen se ejecuta con uid 65532 (`distroless/static:nonroot`). En un host Linux añada `--user "$(id -u):$(id -g)"` para que los archivos de salida le pertenezcan; Docker Desktop en macOS asigna la propiedad del montaje por sí mismo y no necesita nada.
+- **Sin shell dentro.** La imagen contiene solo el binario estático, por lo que `docker run … --help` o `… --verify file.procreate` funcionan, pero no hay ninguna `sh` a la que entrar.
+- **Los archivos temporales** van a la capa escribible del contenedor, no al montaje. Un timelapse grande puede necesitar espacio allí; `--tmpdir /data/tmp` los traslada al volumen montado.
+- **Proyectos privados.** El acceso al registro sigue la visibilidad del proyecto: en un proyecto público el pull es anónimo; en caso contrario, ejecute primero `docker login registry.gitlab.com`.
 
 ## Uso
 

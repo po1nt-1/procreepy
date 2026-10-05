@@ -37,6 +37,59 @@ archives:
         formats:
           - zip
 
+# Multi-arch container images, built daemonless with the built-in ko backend
+# (no Docker daemon, no privileged runner, no QEMU): ko cross-compiles the Go
+# binary per platform and assembles the OCI index itself. `build: procreepy`
+# points ko at the same main package as the archives; env/flags/ldflags below
+# pin the rest explicitly. Container registries hold Linux images only —
+# macOS/Windows users keep the tar.gz/zip archives above.
+kos:
+  - id: procreepy
+    build: procreepy
+    # Minimal, non-root runtime base. :nonroot runs as uid 65532.
+    base_image: gcr.io/distroless/static:nonroot
+    # CI passes CI_REGISTRY_IMAGE = registry.gitlab.com/<group>/<project>.
+    repositories:
+      - "{{ .Env.CI_REGISTRY_IMAGE }}"
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    tags:
+      - "{{ .Version }}"
+      # `latest` must not follow a prerelease: the release tag regex in CI
+      # admits v1.2.3-rc1, and that must not become the default pull. An empty
+      # template renders to nothing and ko drops it from the tag list.
+      - "{{ if not .Prerelease }}latest{{ end }}"
+    # Push to CI_REGISTRY_IMAGE verbatim (don't append the Go import path).
+    bare: true
+    # Ship an SPDX SBOM next to the image, matching the project's provenance
+    # posture (reproducible builds + published checksums).
+    sbom: spdx
+    # Standard OCI metadata, so the registry page is not an unlabeled blob.
+    # `source` comes from CI_PROJECT_URL, not goreleaser's .GitURL: in a CI
+    # checkout the remote URL carries the job token, which must never be baked
+    # into a published image.
+    labels:
+      org.opencontainers.image.title: "{{ .ProjectName }}"
+      org.opencontainers.image.description: >-
+        Extracts the ready-made timelapse from a .procreate file and joins its
+        segments into one MP4 without re-encoding.
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.source: "{{ .Env.CI_PROJECT_URL }}"
+      org.opencontainers.image.licenses: "Apache-2.0"
+    # Match the archive build exactly instead of relying on flag inheritance:
+    # -buildvcs=false keeps go from probing git (CI checkout trips exit 128),
+    # -trimpath + the version ldflag reproduce the released binary's stamp.
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+      - -buildvcs=false
+    ldflags:
+      - -s -w
+      - -X procreepy/internal/cli.versionStr={{.Version}}
+
 checksum:
   name_template: "CHECKSUMS.txt"
 

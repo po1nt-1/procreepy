@@ -63,14 +63,55 @@ for one target is `GOOS=… GOARCH=… go build -o procreepy[.exe] ./cmd/procree
 
 All builds are static (no cgo): a Linux binary runs on any distribution
 regardless of its glibc version. The CI pipelines (GitLab and GitHub) build
-exactly these targets on every commit, and run the test suite natively on
-Windows as well, since that is the primary platform; the `dist` job publishes
-the tarballs plus a `SHA256SUMS` manifest, and the `repro:*` jobs prove the
-binaries are bit-for-bit reproducible.
+exactly these targets on every commit and also run the whole test suite
+against the real `windows/amd64` binary, since Windows is the primary
+platform — natively on GitHub's hosted runner, and under Wine on GitLab,
+which has Linux runners only (see `ci/windows-wine/`). The `dist` job
+publishes the tarballs plus a `SHA256SUMS` manifest, and the `repro:*` jobs
+prove the binaries are bit-for-bit reproducible.
 
 - Linux/macOS: no installation step, run the binary directly.
 - Windows: the binary is unsigned, so SmartScreen may show "Protected your
   PC" — choose **More info → Run anyway**.
+
+## Running in a container
+
+Every release tag also publishes a multi-arch image (`linux/amd64`,
+`linux/arm64`) to the project registry, so the CLI runs with no Go toolchain
+and no tarball to unpack. This covers Apple Silicon too: Docker Desktop and
+`podman machine` run a `linux/arm64` VM on an M-series Mac, so the arm64
+variant is selected automatically — no `--platform` flag and no emulation.
+
+```bash
+# single file — mount the current directory and use paths inside it
+docker run --rm -v "$PWD":/data -w /data \
+  registry.gitlab.com/po1nt-1/procreepy:latest artwork.procreate artwork.mp4
+
+# batch mode: a folder in, a folder out
+docker run --rm -v "$PWD":/data -w /data \
+  registry.gitlab.com/po1nt-1/procreepy:latest input/ output/
+
+# stdin → stdout needs no mount at all
+docker run --rm -i registry.gitlab.com/po1nt-1/procreepy:latest - \
+  < artwork.procreate > artwork.mp4
+```
+
+`podman` substitutes for `docker` verbatim. Pin a version with `:1.2.3`
+instead of `:latest` (image tags carry no `v` prefix); `latest` is never
+moved onto a prerelease tag.
+
+- **File ownership.** The image runs as uid 65532 (`distroless/static:nonroot`).
+  On a Linux host add `--user "$(id -u):$(id -g)"` so the output files belong
+  to you; Docker Desktop on macOS maps mount ownership itself and needs nothing.
+- **No shell inside.** The image holds the static binary and nothing else, so
+  `docker run … --help` or `… --verify file.procreate` work, but there is no
+  `sh` to exec into.
+- **Temporary files** land in the container's writable layer, not on the
+  mount. A large timelapse can need space there; `--tmpdir /data/tmp` moves
+  them onto the mounted volume instead.
+- **Private projects.** Registry access follows project visibility: a public
+  project pulls anonymously, otherwise run `docker login registry.gitlab.com`
+  first.
 
 ## Usage
 

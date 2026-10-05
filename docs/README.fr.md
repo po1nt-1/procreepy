@@ -47,10 +47,35 @@ Le projet est écrit en Go pur et se compile proprement pour toutes les cibles p
 | macOS Intel | `make release GOOS=darwin GOARCH=amd64` |
 | macOS Apple Silicon (M1–M5) | `make release GOOS=darwin GOARCH=arm64` |
 Chaque cible produit un `dist/procreepy-<version>-<os>-<arch>.tar.gz` normalisé et affiche son SHA-256 ; `make cross` construit toute la matrice en une fois et `make repro` prouve qu'une compilation est reproductible bit à bit. L'équivalent brut pour une cible est `GOOS=… GOARCH=… go build -o procreepy[.exe] ./cmd/procreepy`.
-Toutes les compilations sont statiques (sans cgo) : un binaire Linux fonctionne sur n'importe quelle distribution, quelle que soit sa version de glibc. Les pipelines CI (GitLab et GitHub) construisent exactement ces cibles à chaque commit et, Windows étant la plateforme principale, exécutent en outre la suite de tests en natif sous Windows ; le job `dist` publie les tarballs avec un manifeste `SHA256SUMS`, et les jobs `repro:*` prouvent la reproductibilité bit à bit des binaires.
+Toutes les compilations sont statiques (sans cgo) : un binaire Linux fonctionne sur n'importe quelle distribution, quelle que soit sa version de glibc. Les pipelines CI (GitLab et GitHub) construisent exactement ces cibles à chaque commit et, Windows étant la plateforme principale, exécutent en outre la suite de tests sur le véritable binaire `windows/amd64` : en natif sur le runner hébergé de GitHub et sous Wine sur GitLab, qui ne dispose que de runners Linux (voir `ci/windows-wine/`) ; le job `dist` publie les tarballs avec un manifeste `SHA256SUMS`, et les jobs `repro:*` prouvent la reproductibilité bit à bit des binaires.
 
 - Linux/macOS : aucune installation, exécutez directement le binaire.
 - Windows : le binaire n'est pas signé ; SmartScreen peut donc afficher « Protection de votre ordinateur » — choisissez **Plus d'informations → Exécuter quand même**.
+
+## Exécution dans un conteneur
+
+Chaque tag de version publie également une image multi-architecture (`linux/amd64`, `linux/arm64`) dans le registre du projet, de sorte que la CLI s'exécute sans chaîne d'outils Go et sans décompresser d'archive. Cela couvre aussi Apple Silicon : Docker Desktop et `podman machine` lancent une machine virtuelle `linux/arm64` sur un Mac de la série M, donc la variante arm64 est choisie automatiquement — sans l'option `--platform` et sans émulation.
+
+```bash
+# un seul fichier — montez le répertoire courant et utilisez des chemins internes
+docker run --rm -v "$PWD":/data -w /data \
+  registry.gitlab.com/po1nt-1/procreepy:latest artwork.procreate artwork.mp4
+
+# mode par lots : un dossier en entrée, un dossier en sortie
+docker run --rm -v "$PWD":/data -w /data \
+  registry.gitlab.com/po1nt-1/procreepy:latest input/ output/
+
+# stdin → stdout ne nécessite aucun montage
+docker run --rm -i registry.gitlab.com/po1nt-1/procreepy:latest - \
+  < artwork.procreate > artwork.mp4
+```
+
+`podman` remplace `docker` à l'identique. Pour figer une version, utilisez `:1.2.3` au lieu de `:latest` (les tags d'image n'ont pas de préfixe `v`) ; `latest` n'est jamais déplacé sur un tag de préversion.
+
+- **Propriété des fichiers.** L'image s'exécute sous l'uid 65532 (`distroless/static:nonroot`). Sur un hôte Linux, ajoutez `--user "$(id -u):$(id -g)"` pour que les fichiers de sortie vous appartiennent ; Docker Desktop sur macOS gère lui-même la propriété du montage et n'a besoin de rien.
+- **Aucun shell à l'intérieur.** L'image ne contient que le binaire statique : `docker run … --help` ou `… --verify file.procreate` fonctionnent, mais il n'y a pas de `sh` dans laquelle entrer.
+- **Les fichiers temporaires** vont dans la couche inscriptible du conteneur, pas dans le montage. Un gros timelapse peut y demander de la place ; `--tmpdir /data/tmp` les déplace sur le volume monté.
+- **Projets privés.** L'accès au registre suit la visibilité du projet : un projet public se télécharge anonymement, sinon exécutez d'abord `docker login registry.gitlab.com`.
 
 ## Utilisation
 

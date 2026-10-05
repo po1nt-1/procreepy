@@ -1,0 +1,77 @@
+# Run procreepy's native Windows test job on a Linux host, in a container,
+# under Wine. No KVM, no Windows license — just Wine running a real
+# windows/amd64 Go toolchain, which in turn builds and runs procreepy.exe.
+#
+# Why a full Windows Go toolchain and not just cross-compiled test binaries:
+# internal/e2e's TestMain shells out to `go build -cover ...` and
+# `go tool covdata` AT TEST TIME and then execs the built .exe. Under Wine a
+# windows go.exe satisfies that — it spawns child PE processes that Wine runs
+# too. This mirrors the (previously pending) native `test:windows` job 1:1.
+#
+# Build:  podman build -t procreepy-winci ci/windows-wine
+# Run:    see run-tests.sh / run-tests.hybrid.sh headers.
+
+FROM docker.io/library/debian:bookworm-slim
+
+# Pin to the exact toolchain the project uses (GO_IMAGE: golang:1.27.1).
+# go.mod says `go 1.27` with GOTOOLCHAIN=local, so the version must be 1.27.x.
+ARG GO_VERSION=1.27.1
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    WINEPREFIX=/opt/wineprefix \
+    WINEARCH=win64 \
+    # Silence Wine's fixme/err chatter so it never interleaves with the
+    # byte-exact stdout/stderr the e2e tests assert on.
+    WINEDEBUG=-all \
+    GOTOOLCHAIN=local \
+    GOPROXY=off \
+    GOFLAGS=-mod=readonly \
+    CGO_ENABLED=0
+
+# wine64 + the few tools needed to fetch and unpack the Windows Go toolchain.
+RUN set -eux; \
+    dpkg --add-architecture i386; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        wine wine64 \
+        ca-certificates curl unzip \
+        procps; \
+    rm -rf /var/lib/apt/lists/*
+
+# Two Go toolchains of the same pinned version:
+#   /opt/go-win    windows/amd64 — run under Wine (needed by internal/e2e's
+#                  runtime `go build`/`go tool covdata`, and by the faithful
+#                  full run in run-tests.sh). Wine reaches it via the
+#                  auto-mapped Z: drive (Z:\opt\go-win\bin\go.exe).
+#   /opt/go-linux  linux/amd64 — native host toolchain the hybrid script uses
+#                  to cross-compile test binaries fast (GOOS=windows go test -c)
+#                  before running them under Wine.
+RUN set -eux; \
+    mkdir -p /opt; \
+    curl -fsSL "https://go.dev/dl/go${GO_VERSION}.windows-amd64.zip" -o /tmp/go-win.zip; \
+    unzip -q /tmp/go-win.zip -d /opt; \
+    mv /opt/go /opt/go-win; \
+    rm /tmp/go-win.zip; \
+    curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go-linux.tgz; \
+    tar -C /opt -xzf /tmp/go-linux.tgz; \
+    mv /opt/go /opt/go-linux; \
+    rm /tmp/go-linux.tgz; \
+    /opt/go-linux/bin/go version
+
+# Pre-create the Wine prefix at build time so the first real run is not spent
+# bootstrapping it. wineboot initializes the prefix synchronously.
+RUN set -eux; \
+    wineboot --init; \
+    wineserver -w
+
+# Native (Linux) Go on PATH for the hybrid script's cross-compile step.
+ENV PATH="/opt/go-linux/bin:${PATH}"
+
+COPY run-tests.sh run-tests.hybrid.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/run-tests.sh /usr/local/bin/run-tests.hybrid.sh
+
+# Project is mounted here when run locally with podman. (GitLab CI overrides
+# the working dir to the cloned checkout and ignores this ENTRYPOINT, invoking
+# `run-tests.sh` from the job `script:` instead.)
+WORKDIR /src
+ENTRYPOINT ["/usr/local/bin/run-tests.sh"]

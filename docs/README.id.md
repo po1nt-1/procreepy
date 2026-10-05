@@ -52,10 +52,35 @@ Proyek ini murni Go dan dapat di-cross-compile dengan bersih untuk semua target 
 | macOS Intel | `make release GOOS=darwin GOARCH=amd64` |
 | macOS Apple Silicon (M1–M5) | `make release GOOS=darwin GOARCH=arm64` |
 Setiap target menghasilkan `dist/procreepy-<version>-<os>-<arch>.tar.gz` yang ternormalisasi dan mencetak SHA-256-nya; `make cross` membangun seluruh matriks sekaligus, sedangkan `make repro` membuktikan bahwa build dapat direproduksi bit demi bit. Padanan langsung untuk satu target adalah `GOOS=… GOARCH=… go build -o procreepy[.exe] ./cmd/procreepy`.
-Semua build bersifat statis (tanpa cgo): binary Linux berjalan pada distro apa pun terlepas dari versi glibc. Pipeline CI (GitLab dan GitHub) membangun target yang sama pada setiap commit dan, karena Windows adalah platform utama, menjalankan seluruh test suite secara natif di Windows; job `dist` menerbitkan tarball beserta manifest `SHA256SUMS`, dan job `repro:*` membuktikan binary dapat direproduksi bit demi bit.
+Semua build bersifat statis (tanpa cgo): binary Linux berjalan pada distro apa pun terlepas dari versi glibc. Pipeline CI (GitLab dan GitHub) membangun target yang sama pada setiap commit dan, karena Windows adalah platform utama, menjalankan seluruh test suite terhadap binary `windows/amd64` yang sebenarnya: secara natif di hosted runner GitHub, dan di bawah Wine pada GitLab yang hanya memiliki runner Linux (lihat `ci/windows-wine/`); job `dist` menerbitkan tarball beserta manifest `SHA256SUMS`, dan job `repro:*` membuktikan binary dapat direproduksi bit demi bit.
 
 - Linux/macOS: tidak ada langkah instalasi, jalankan binary secara langsung.
 - Windows: binary tidak ditandatangani, jadi SmartScreen mungkin menampilkan “Protected your PC” — pilih **More info → Run anyway**.
+
+## Menjalankan dalam kontainer
+
+Setiap tag rilis juga menerbitkan image multi-arsitektur (`linux/amd64`, `linux/arm64`) ke registry proyek, sehingga CLI berjalan tanpa toolchain Go dan tanpa membongkar tarball. Ini mencakup Apple Silicon juga: Docker Desktop dan `podman machine` menjalankan mesin virtual `linux/arm64` di Mac seri M, jadi varian arm64 dipilih otomatis — tanpa flag `--platform` dan tanpa emulasi.
+
+```bash
+# satu berkas — pasang direktori saat ini dan gunakan path di dalamnya
+docker run --rm -v "$PWD":/data -w /data \
+  registry.gitlab.com/po1nt-1/procreepy:latest artwork.procreate artwork.mp4
+
+# mode batch: satu folder masuk, satu folder keluar
+docker run --rm -v "$PWD":/data -w /data \
+  registry.gitlab.com/po1nt-1/procreepy:latest input/ output/
+
+# stdin → stdout tidak memerlukan mount sama sekali
+docker run --rm -i registry.gitlab.com/po1nt-1/procreepy:latest - \
+  < artwork.procreate > artwork.mp4
+```
+
+`podman` menggantikan `docker` apa adanya. Untuk mematok versi gunakan `:1.2.3` alih-alih `:latest` (tag image tidak memakai awalan `v`); `latest` tidak pernah dipindahkan ke tag prarilis.
+
+- **Kepemilikan berkas.** Image berjalan sebagai uid 65532 (`distroless/static:nonroot`). Pada host Linux, tambahkan `--user "$(id -u):$(id -g)"` agar berkas keluaran menjadi milik Anda; Docker Desktop di macOS memetakan kepemilikan mount sendiri dan tidak memerlukan apa pun.
+- **Tidak ada shell di dalam.** Image hanya memuat binary statis, jadi `docker run … --help` atau `… --verify file.procreate` berfungsi, tetapi tidak ada `sh` untuk masuk ke dalamnya.
+- **Berkas sementara** ditulis ke lapisan kontainer yang dapat ditulisi, bukan ke mount. Timelapse besar bisa membutuhkan ruang di sana; `--tmpdir /data/tmp` memindahkannya ke volume yang dipasang.
+- **Proyek privat.** Akses registry mengikuti visibilitas proyek: proyek publik dapat di-pull secara anonim, jika tidak jalankan `docker login registry.gitlab.com` terlebih dahulu.
 
 ## Penggunaan
 

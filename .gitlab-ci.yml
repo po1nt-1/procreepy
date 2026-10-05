@@ -4,6 +4,7 @@
 # Note that environment variables can be set in several places
 # See https://docs.gitlab.com/ci/variables/#cicd-variable-precedence
 stages:
+- images
 - test
 - build
 - verify
@@ -31,6 +32,53 @@ sast:
 secret_detection:
   stage: secret-detection
 
+# ---------------------------------------------------------------------------
+# Container images used by later stages, built and pushed to the project
+# registry with kaniko (no Docker daemon). Reusable base: a concrete image
+# job sets IMAGE_CONTEXT (dir holding a Containerfile) and IMAGE_NAME
+# (full registry path:tag), and a `rules: changes:` block so the image is
+# rebuilt only when its own directory changes — every other pipeline just
+# pulls the tag that is already in the registry.
+# ---------------------------------------------------------------------------
+.kaniko-build:
+  stage: images
+  image:
+    name: gcr.io/kaniko-project/executor:v1.23.2-debug
+    entrypoint: [""]
+  before_script:
+    # Authenticate kaniko to the project registry with the job token.
+    - mkdir -p /kaniko/.docker
+    - |
+      printf '{"auths":{"%s":{"auth":"%s"}}}' "$CI_REGISTRY" \
+        "$(printf '%s:%s' "$CI_REGISTRY_USER" "$CI_REGISTRY_PASSWORD" | base64 | tr -d '\n')" \
+        > /kaniko/.docker/config.json
+  script:
+    - >-
+      /kaniko/executor
+      --context "$CI_PROJECT_DIR/$IMAGE_CONTEXT"
+      --dockerfile "$CI_PROJECT_DIR/$IMAGE_CONTEXT/Containerfile"
+      --destination "$IMAGE_NAME"
+
+# Windows test image: wine64 + a windows/amd64 Go toolchain (see
+# ci/windows-wine/). Consumed by the test:windows job below.
+build:winci-image:
+  extends: .kaniko-build
+  variables:
+    IMAGE_CONTEXT: ci/windows-wine
+  rules:
+    # An MR that touches the image publishes it under a branch-scoped tag, so
+    # an unreviewed change can never clobber the tag other pipelines consume.
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+      - ci/windows-wine/**/*
+      variables:
+        IMAGE_NAME: $CI_REGISTRY_IMAGE/winci:1.27.1-$CI_COMMIT_REF_SLUG
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      changes:
+      - ci/windows-wine/**/*
+      variables:
+        IMAGE_NAME: $CI_REGISTRY_IMAGE/winci:1.27.1
+
 test:
   stage: test
   image: $GO_IMAGE
@@ -50,23 +98,56 @@ test:
         path: coverage.xml
 
 # Windows is the primary user scenario (PLAN §16), so the suite also runs
-# natively on a real Windows machine, not only as a cross-compile target:
-# native build, vet, and the full test suite, whose e2e part executes the
-# compiled .exe (path, rename and console behavior included). Needs a
-# self-hosted runner tagged `windows` with Go >= 1.27 on PATH; the shared
-# docker executor cannot run .exe tests, and without such a runner this
-# job stays pending. The env mirrors the Makefile's hermetic set (pinned
-# toolchain, no module network, no cgo); flags are passed per command,
-# space-free, so the job works under cmd.exe and PowerShell runners alike.
+# against the real windows/amd64 binary — its e2e part builds and executes
+# procreepy.exe (path, rename and console behavior included). The project has
+# no `windows`-tagged runner, so the former native job sat pending until it
+# failed with stuck_pending_no_matching_runners. Instead we run the identical
+# `go build/vet/test ./...` under Wine on an ordinary Linux runner: the image
+# (ci/windows-wine/) bundles wine64 + a windows/amd64 Go 1.27.1 toolchain, and
+# run-tests.sh drives each `go` as `wine go.exe` — see ci/windows-wine/README.md.
+#
+# The image itself is built by build:winci-image in the earlier `images`
+# stage, and only when ci/windows-wine/ changes; every other pipeline just
+# pulls the tag already in the registry. No manual bootstrap is needed: the
+# first pipeline that adds this directory builds the image before this job
+# runs.
 test:windows:
   stage: test
-  tags:
-  - windows
+  image: $CI_REGISTRY_IMAGE/winci:$WINCI_TAG
+  variables:
+    WINEDEBUG: "-all"
+    WINCI_TAG: "1.27.1"
+  # Go-under-Wine compiles slowly, so this job is not worth a slot in every
+  # pipeline: it runs on release tags (where Windows is a real gate), and
+  # otherwise only when something that can actually change Windows behavior
+  # moved. A docs-only or CI-only commit leaves it as an optional manual job.
+  rules:
+    # Mirrors build:winci-image's MR condition: when this MR rebuilt the image,
+    # consume that branch-scoped tag so the MR tests its own image rather than
+    # the shared one. Every other pipeline pulls the stable tag.
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+      - ci/windows-wine/**/*
+      variables:
+        WINCI_TAG: "1.27.1-$CI_COMMIT_REF_SLUG"
+    # Release tags always get the Windows gate, whatever the diff looks like.
+    - if: '$CI_COMMIT_TAG'
+    # Branch and MR pipelines: only on Windows-relevant changes. There is no
+    # go.sum — the module has zero dependencies.
+    - changes:
+      - "**/*.go"
+      - go.mod
+      - Makefile
+      - ci/windows-wine/**/*
+    # Anything else: still reachable, but only when someone asks for it.
+    # allow_failure (below) keeps this optional, so it never blocks a pipeline.
+    - when: manual
   script:
-  - go env -w GOTOOLCHAIN=local GOPROXY=off CGO_ENABLED=0
-  - go build -buildvcs=false ./...
-  - go vet -buildvcs=false ./...
-  - go test -buildvcs=false ./... -count=1
+  - run-tests.sh
+  timeout: 30m
+  # Wine is not a byte-perfect Windows; keep it non-blocking until proven
+  # stable, then drop this line so Windows regressions fail the pipeline.
+  allow_failure: true
 
 # Release builds for the supported platforms. The code is pure Go with
 # per-OS shims (io_linux.go / io_darwin.go / io_windows.go), so all three
@@ -196,6 +277,14 @@ goreleaser:
   script:
     - curl -LsSfL https://github.com/goreleaser/goreleaser/releases/download/v2.18.2/goreleaser_Linux_x86_64.tar.gz -o /tmp/goreleaser.tar.gz
     - tar -C /usr/local/bin -xzf /tmp/goreleaser.tar.gz goreleaser
+    # Authenticate to the project container registry so the kos backend can
+    # push the multi-arch image. CI_REGISTRY_USER/CI_REGISTRY_PASSWORD are the
+    # predefined job-token registry credentials; ko reads ~/.docker/config.json.
+    - mkdir -p ~/.docker
+    - |
+      printf '{"auths":{"%s":{"auth":"%s"}}}' "$CI_REGISTRY" \
+        "$(printf '%s:%s' "$CI_REGISTRY_USER" "$CI_REGISTRY_PASSWORD" | base64 | tr -d '\n')" \
+        > ~/.docker/config.json
     - goreleaser release --clean
   artifacts:
     paths:

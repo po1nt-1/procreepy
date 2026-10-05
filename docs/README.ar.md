@@ -37,10 +37,35 @@ make check      # gofmt + build + vet + مجموعة الاختبارات كام
 | macOS Intel | `make release GOOS=darwin GOARCH=amd64` |
 | macOS Apple Silicon (M1–M5) | `make release GOOS=darwin GOARCH=arm64` |
 ينتج كل هدف ملفًا موحدًا باسم `dist/procreepy-<version>-<os>-<arch>.tar.gz` ويطبع قيمة SHA-256 الخاصة به؛ ويبني `make cross` المصفوفة كاملة دفعة واحدة، بينما يثبت `make repro` أن البناء قابل لإعادة الإنتاج على مستوى كل بت. والمكافئ المباشر لهدف واحد هو `GOOS=… GOARCH=… go build -o procreepy[.exe] ./cmd/procreepy`.
-جميع عمليات البناء ثابتة (من دون cgo): يعمل ملف Linux التنفيذي على أي توزيعة بغض النظر عن إصدار glibc. وتبني خطوط CI (GitLab وGitHub) هذه الأهداف نفسها مع كل commit، وكما أن Windows هو المنصة الرئيسية فتشغّل أيضًا مجموعة الاختبارات كاملة أصلًا على Windows؛ وتنشر مهمة `dist` حزم tarball مع بيان `SHA256SUMS`، بينما تثبت مهام `repro:*` قابلية إعادة إنتاج الملفات التنفيذية بتطابق تام على مستوى البتات.
+جميع عمليات البناء ثابتة (من دون cgo): يعمل ملف Linux التنفيذي على أي توزيعة بغض النظر عن إصدار glibc. وتبني خطوط CI (GitLab وGitHub) هذه الأهداف نفسها مع كل commit، وكما أن Windows هو المنصة الرئيسية فتشغّل أيضًا مجموعة الاختبارات كاملة على ملف `windows/amd64` التنفيذي الحقيقي: أصلًا على منفّذ GitHub المُستضاف، وتحت Wine على GitLab الذي لا يوفّر سوى منفّذات Linux (انظر `ci/windows-wine/`)؛ وتنشر مهمة `dist` حزم tarball مع بيان `SHA256SUMS`، بينما تثبت مهام `repro:*` قابلية إعادة إنتاج الملفات التنفيذية بتطابق تام على مستوى البتات.
 
 - Linux/macOS: لا توجد خطوة تثبيت؛ شغّل الملف التنفيذي مباشرة.
 - Windows: الملف التنفيذي غير موقّع، لذا قد يعرض SmartScreen رسالة "Protected your PC" — اختر **More info → Run anyway**.
+
+## التشغيل داخل حاوية
+
+ينشر كل وسم إصدار أيضًا صورة متعددة المعماريات (`linux/amd64` و`linux/arm64`) في سجلّ المشروع، فيمكن تشغيل الأداة دون سلسلة أدوات Go ودون فكّ أي أرشيف. وهذا يغطي Apple Silicon كذلك: إذ يشغّل كل من Docker Desktop و`podman machine` جهازًا افتراضيًا بمعمارية `linux/arm64` على أجهزة Mac من سلسلة M، فيُنتقى متغيّر arm64 تلقائيًا — بلا راية `--platform` وبلا محاكاة.
+
+```bash
+# ملف واحد — اربط المجلد الحالي واستخدم المسارات داخله
+docker run --rm -v "$PWD":/data -w /data \
+  registry.gitlab.com/po1nt-1/procreepy:latest artwork.procreate artwork.mp4
+
+# الوضع الدُفعي: مجلد للدخل ومجلد للخرج
+docker run --rm -v "$PWD":/data -w /data \
+  registry.gitlab.com/po1nt-1/procreepy:latest input/ output/
+
+# المدخل القياسي ← المخرج القياسي لا يحتاج أي ربط للمجلدات
+docker run --rm -i registry.gitlab.com/po1nt-1/procreepy:latest - \
+  < artwork.procreate > artwork.mp4
+```
+
+يحلّ `podman` محلّ `docker` حرفيًا. ولتثبيت إصدار معيّن استخدم `:1.2.3` بدلًا من `:latest` (وسوم الصورة لا تحمل البادئة `v`)؛ ولا يُنقل `latest` أبدًا إلى وسم إصدار تجريبي.
+
+- **ملكية الملفات.** تعمل الصورة بالمعرّف uid 65532 (`distroless/static:nonroot`). على مضيف Linux أضف `--user "$(id -u):$(id -g)"` لتكون ملفات الخرج مملوكة لك؛ أما Docker Desktop على macOS فيعالج ملكية المجلد المربوط بنفسه ولا يحتاج شيئًا.
+- **لا توجد صَدَفة داخل الصورة.** تحتوي الصورة على الملف التنفيذي الساكن وحده، لذا يعمل `docker run … --help` أو `… --verify file.procreate`، لكن لا توجد `sh` للدخول إليها.
+- **الملفات المؤقتة** تُكتب في طبقة الحاوية القابلة للكتابة، لا في المجلد المربوط. وقد يحتاج تسجيل زمني كبير إلى مساحة هناك؛ و`--tmpdir /data/tmp` ينقلها إلى المجلد المربوط.
+- **المشاريع الخاصة.** يتبع الوصول إلى السجلّ درجة ظهور المشروع: فالمشروع العام يُسحب دون هوية، وإلا فنفّذ `docker login registry.gitlab.com` أولًا.
 
 ## الاستخدام
 

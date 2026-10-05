@@ -37,10 +37,35 @@ make check      # gofmt + build + vet + 完整测试套件
 | macOS Intel | `make release GOOS=darwin GOARCH=amd64` |
 | macOS Apple Silicon（M1–M5） | `make release GOOS=darwin GOARCH=arm64` |
 每个目标都会生成规范化的 `dist/procreepy-<version>-<os>-<arch>.tar.gz` 并打印其 SHA-256；`make cross` 会一次构建完整矩阵，`make repro` 则证明构建可以逐位复现。单个目标的直接等价命令是 `GOOS=… GOARCH=… go build -o procreepy[.exe] ./cmd/procreepy`。
-所有构建都是静态的（无 cgo）：Linux 二进制文件可以在任意发行版上运行，与其 glibc 版本无关。CI 流水线（GitLab 和 GitHub）会在每次 commit 时构建这些目标，并且由于 Windows 是主要平台，还会原生地在 Windows 上运行完整测试套件；`dist` 任务发布 tarball 和 `SHA256SUMS` 清单，`repro:*` 任务证明二进制文件可以逐位复现。
+所有构建都是静态的（无 cgo）：Linux 二进制文件可以在任意发行版上运行，与其 glibc 版本无关。CI 流水线（GitLab 和 GitHub）会在每次 commit 时构建这些目标，并且由于 Windows 是主要平台，还会针对真实的 `windows/amd64` 二进制文件运行完整测试套件：在 GitHub 托管 runner 上原生运行，在仅有 Linux runner 的 GitLab 上则通过 Wine 运行（参见 `ci/windows-wine/`）；`dist` 任务发布 tarball 和 `SHA256SUMS` 清单，`repro:*` 任务证明二进制文件可以逐位复现。
 
 - Linux/macOS：无需安装，直接运行二进制文件。
 - Windows：二进制文件未签名，因此 SmartScreen 可能显示“已保护你的电脑”——选择 **更多信息 → 仍要运行**。
+
+## 在容器中运行
+
+每个发布标签还会向项目 registry 推送一个多架构镜像（`linux/amd64`、`linux/arm64`），因此无需 Go 工具链、也无需解压 tarball 即可运行该 CLI。这同样覆盖 Apple Silicon：在 M 系列 Mac 上，Docker Desktop 和 `podman machine` 运行的是 `linux/arm64` 虚拟机，所以会自动选中 arm64 变体——不需要 `--platform` 参数，也没有模拟开销。
+
+```bash
+# 单个文件——挂载当前目录，并使用目录内的路径
+docker run --rm -v "$PWD":/data -w /data \
+  registry.gitlab.com/po1nt-1/procreepy:latest artwork.procreate artwork.mp4
+
+# 批量模式：一个输入目录，一个输出目录
+docker run --rm -v "$PWD":/data -w /data \
+  registry.gitlab.com/po1nt-1/procreepy:latest input/ output/
+
+# stdin → stdout 完全不需要挂载
+docker run --rm -i registry.gitlab.com/po1nt-1/procreepy:latest - \
+  < artwork.procreate > artwork.mp4
+```
+
+把 `docker` 原样换成 `podman` 即可。要固定版本，请用 `:1.2.3` 代替 `:latest`（镜像标签不带 `v` 前缀）；`latest` 绝不会指向预发布标签。
+
+- **文件归属。** 镜像以 uid 65532（`distroless/static:nonroot`）运行。在 Linux 主机上请加 `--user "$(id -u):$(id -g)"`，这样输出文件才属于你；macOS 上的 Docker Desktop 会自行映射挂载归属，无需额外参数。
+- **镜像内没有 shell。** 镜像里只有那个静态二进制文件，所以 `docker run … --help` 或 `… --verify file.procreate` 可用，但没有 `sh` 可以进去。
+- **临时文件** 写在容器的可写层，而不是挂载卷上。大体量的 timelapse 可能需要不少空间；`--tmpdir /data/tmp` 可把它们改放到挂载卷。
+- **私有项目。** registry 的访问权限跟随项目可见性：公开项目可匿名拉取，否则请先执行 `docker login registry.gitlab.com`。
 
 ## 用法
 

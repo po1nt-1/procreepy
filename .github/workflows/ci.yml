@@ -260,6 +260,15 @@ jobs:
     - name: verify tag format
       # Refuses to publish anything that is not a (pre)release version.
       uses: ./.github/actions/tag-guard
+    # goreleaser shells out to `go` to resolve the module path, and this job
+    # runs on the bare runner rather than in the golang:1.27.1 container the
+    # other jobs use. The runner's preinstalled Go is older than go.mod's
+    # `go 1.27`, and the workflow-level GOTOOLCHAIN=local forbids fetching a
+    # newer one, so without this step the release dies with "go.mod requires
+    # go >= 1.27 (running go 1.24.x; GOTOOLCHAIN=local)".
+    - uses: actions/setup-go@v5
+      with:
+        go-version: "1.27.1"
     - name: install goreleaser
       run: |
         mkdir -p "$HOME/bin"
@@ -271,7 +280,13 @@ jobs:
       # GitHub and authenticates with GITHUB_TOKEN — one release per tag on
       # this host; the GitLab release for the same tag comes from the tag
       # pipeline there.
-      run: goreleaser release --clean
+      #
+      # --skip=ko: the shared .goreleaser.yaml's `kos` section publishes the
+      # container image to the GitLab project registry and resolves
+      # {{ .Env.CI_REGISTRY_IMAGE }}, which only exists in GitLab CI. Container
+      # images are therefore published from the GitLab tag pipeline alone; this
+      # host keeps publishing the archives.
+      run: goreleaser release --clean --skip=ko
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     # GitLab keeps the goreleaser dist/ as a 30-day artifact; mirror that.

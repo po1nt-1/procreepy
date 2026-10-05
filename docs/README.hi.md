@@ -51,10 +51,35 @@ Project pure Go है और सभी supported targets के लिए स�
 | macOS Intel | `make release GOOS=darwin GOARCH=amd64` |
 | macOS Apple Silicon (M1–M5) | `make release GOOS=darwin GOARCH=arm64` |
 हर target एक normalized `dist/procreepy-<version>-<os>-<arch>.tar.gz` बनाता है और उसका SHA-256 दिखाता है; `make cross` पूरी matrix को एक साथ build करता है, और `make repro` साबित करता है कि build bit-for-bit reproducible है। एक target के लिए raw equivalent है `GOOS=… GOARCH=… go build -o procreepy[.exe] ./cmd/procreepy`।
-सभी builds static हैं (no cgo): Linux binary किसी भी distribution पर चलेगी, glibc का version कुछ भी हो। CI pipelines (GitLab और GitHub) हर commit पर इन्हीं targets को build करती हैं और, क्योंकि Windows मुख्य platform है, पूरी test suite को Windows पर भी natively चलाती हैं; `dist` job tarballs और `SHA256SUMS` manifest publish करती है, और `repro:*` jobs binaries की bit-for-bit reproducibility साबित करती हैं।
+सभी builds static हैं (no cgo): Linux binary किसी भी distribution पर चलेगी, glibc का version कुछ भी हो। CI pipelines (GitLab और GitHub) हर commit पर इन्हीं targets को build करती हैं और, क्योंकि Windows मुख्य platform है, पूरी test suite को असली `windows/amd64` binary पर चलाती हैं: GitHub के hosted runner पर natively, और GitLab पर Wine के अंदर, जहाँ सिर्फ़ Linux runners हैं (देखें `ci/windows-wine/`); `dist` job tarballs और `SHA256SUMS` manifest publish करती है, और `repro:*` jobs binaries की bit-for-bit reproducibility साबित करती हैं।
 
 - Linux/macOS: किसी installation step की ज़रूरत नहीं; binary सीधे चलाएँ।
 - Windows: binary unsigned है, इसलिए SmartScreen “Protected your PC” दिखा सकता है — **More info → Run anyway** चुनें।
+
+## Container में चलाना
+
+हर release tag project registry में एक multi-arch image (`linux/amd64`, `linux/arm64`) भी publish करता है, इसलिए CLI को Go toolchain के बिना और कोई tarball खोले बिना चलाया जा सकता है। इससे Apple Silicon भी कवर हो जाता है: M-series Mac पर Docker Desktop और `podman machine` एक `linux/arm64` virtual machine चलाते हैं, इसलिए arm64 variant अपने आप चुना जाता है — न `--platform` flag चाहिए, न emulation।
+
+```bash
+# एक फ़ाइल — वर्तमान directory mount करें और उसके अंदर के path इस्तेमाल करें
+docker run --rm -v "$PWD":/data -w /data \
+  registry.gitlab.com/po1nt-1/procreepy:latest artwork.procreate artwork.mp4
+
+# batch mode: एक folder अंदर, एक folder बाहर
+docker run --rm -v "$PWD":/data -w /data \
+  registry.gitlab.com/po1nt-1/procreepy:latest input/ output/
+
+# stdin → stdout को किसी mount की ज़रूरत ही नहीं
+docker run --rm -i registry.gitlab.com/po1nt-1/procreepy:latest - \
+  < artwork.procreate > artwork.mp4
+```
+
+`docker` की जगह `podman` बिना किसी बदलाव के चलेगा। version pin करने के लिए `:latest` के बजाय `:1.2.3` लिखें (image tags में `v` prefix नहीं होता); `latest` कभी किसी prerelease tag पर नहीं ले जाया जाता।
+
+- **फ़ाइलों का owner.** Image uid 65532 (`distroless/static:nonroot`) के रूप में चलती है। Linux host पर `--user "$(id -u):$(id -g)"` जोड़ें ताकि output फ़ाइलें आपकी हों; macOS पर Docker Desktop mount का ownership खुद संभालता है और कुछ नहीं चाहिए।
+- **अंदर shell नहीं है.** Image में केवल static binary है, इसलिए `docker run … --help` या `… --verify file.procreate` चलते हैं, लेकिन अंदर जाने के लिए कोई `sh` नहीं है।
+- **अस्थायी फ़ाइलें** container की writable layer में बनती हैं, mount पर नहीं। बड़े timelapse को वहाँ जगह चाहिए हो सकती है; `--tmpdir /data/tmp` उन्हें mount किए गए volume पर ले जाता है।
+- **Private projects.** Registry access project की visibility के अनुसार होता है: public project से pull anonymous चलता है, वरना पहले `docker login registry.gitlab.com` चलाएँ।
 
 ## उपयोग
 
