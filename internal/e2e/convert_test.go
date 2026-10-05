@@ -401,6 +401,12 @@ func TestOutputDirNotWritable(t *testing.T) {
 	if os.Getuid() == 0 {
 		t.Skip("running as root; permission bits are ignored")
 	}
+	if os.PathSeparator == '\\' {
+		// Windows does not deny file creation based on a directory's
+		// read-only attribute, and os.Chmod cannot clear the write ACL, so
+		// the premise below (an unwritable directory) is unreachable here.
+		t.Skip("windows: a directory's mode bits do not gate file creation")
+	}
 	dir := t.TempDir()
 	writeArchive(t, dir, "in.procreate", stdThree())
 	ro := filepath.Join(dir, "ro")

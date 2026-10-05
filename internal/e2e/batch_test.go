@@ -180,7 +180,8 @@ func TestBatchMixedFailures(t *testing.T) {
 		batchConverted("input/a.procreate", "output/timelapses/a.mp4", "output/projects/a.procreepy.procreate", 3, stdSize()) +
 		batchNoVideo("input/b.procreate") +
 		batchFailed("input/c.procreate",
-			"input is not a valid ZIP archive: input/c.procreate (not a .procreate file, or truncated/corrupted)") +
+			"input is not a valid ZIP archive: "+fsPath("input/c.procreate")+
+				" (not a .procreate file, or truncated/corrupted)") +
 		batchFailed("input/d.procreate",
 			"segment video/segments/segment-1.mp4 is corrupted inside the archive: zip: checksum error") +
 		batchDone(1, 0, 1, 2)

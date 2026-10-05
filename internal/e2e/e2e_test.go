@@ -309,6 +309,15 @@ func strayWarn(member string) string {
 	return slogLine(slog.LevelWarn, "ignoring "+member+": name does not match segment-<number>.mp4")
 }
 
+// fsPath renders a slash-written relative path the way the binary prints a
+// path on disk: with the platform separator. Expectations below are spelled
+// with forward slashes for readability, but the binary joins real paths with
+// filepath.Join, so on Windows it emits `input\a.procreate`. Zip member names
+// (`video/segments/segment-1.mp4`) are not paths on disk and keep their
+// forward slashes on every platform, so this is applied only to arguments
+// that name a file or directory in the filesystem — never to a whole message.
+func fsPath(p string) string { return filepath.FromSlash(p) }
+
 // withSlash mirrors batch.withSlash: a directory spelled with a trailing
 // separator is kept as the caller gave it, otherwise one is appended.
 func withSlash(dir string) string {
@@ -322,35 +331,38 @@ func withSlash(dir string) string {
 // output trees as rendered by batch.go (trailing separators).
 func batchStart(files int, inDir, timelapseDir, projectsDir string) string {
 	return slogLine(slog.LevelInfo, "batch conversion started", "files", files,
-		"input", withSlash(inDir), "timelapses", withSlash(timelapseDir), "projects", withSlash(projectsDir))
+		"input", withSlash(fsPath(inDir)), "timelapses", withSlash(fsPath(timelapseDir)),
+		"projects", withSlash(fsPath(projectsDir)))
 }
 
 // batchConverted renders one successful per-file conversion line. removed is
 // the number of segment members dropped; size, the compressed bytes freed.
 func batchConverted(src, timelapse, project string, removed int, size int64) string {
-	return slogLine(slog.LevelInfo, "converted", "input", src, "timelapse", timelapse,
-		"project", project, "removed_segments", removed, "video_size", humanBytes(size))
+	return slogLine(slog.LevelInfo, "converted", "input", fsPath(src), "timelapse", fsPath(timelapse),
+		"project", fsPath(project), "removed_segments", removed, "video_size", humanBytes(size))
 }
 
 // batchSkipped renders the skip (whole output set already exists) per-file line.
 func batchSkipped(src, timelapse, project string) string {
 	return slogLine(slog.LevelInfo, "skipped, outputs already exist (use --force to overwrite)",
-		"input", src, "timelapse", timelapse, "project", project)
+		"input", fsPath(src), "timelapse", fsPath(timelapse), "project", fsPath(project))
 }
 
 // batchIncomplete renders the half-finished-earlier-run notice.
 func batchIncomplete(src string) string {
-	return slogLine(slog.LevelWarn, "outputs are incomplete, regenerating the whole set", "input", src)
+	return slogLine(slog.LevelWarn, "outputs are incomplete, regenerating the whole set", "input", fsPath(src))
 }
 
 // batchNoVideo renders the soft-skip line for an archive without a timelapse.
 func batchNoVideo(src string) string {
-	return slogLine(slog.LevelWarn, "no timelapse video inside, skipped", "input", src)
+	return slogLine(slog.LevelWarn, "no timelapse video inside, skipped", "input", fsPath(src))
 }
 
 // batchFailed renders the per-file failure line (errMsg is err.Error()).
+// errMsg is passed through verbatim: an error text can quote a zip member,
+// so only the caller knows which of its parts are paths on disk.
 func batchFailed(src, errMsg string) string {
-	return slogLine(slog.LevelError, "file conversion failed", "input", src, "err", errMsg)
+	return slogLine(slog.LevelError, "file conversion failed", "input", fsPath(src), "err", errMsg)
 }
 
 // batchDone renders the batch summary line.

@@ -81,15 +81,15 @@ func TestListDirectory(t *testing.T) {
 	dir := t.TempDir()
 	writeArchive(t, filepath.Join(dir, "input"), "a.procreate", stdThree())
 	writeArchive(t, filepath.Join(dir, "input"), "b.procreate", stdArchiveEntries(0))
-	wantOut := "input: input/a.procreate\nsegments: 3\n" +
+	wantOut := "input: " + fsPath("input/a.procreate") + "\nsegments: 3\n" +
 		"\n" +
 		"1 video/segments/segment-1.mp4\n" +
 		"2 video/segments/segment-2.mp4\n" +
 		"3 video/segments/segment-3.mp4\n" +
 		"\n" +
-		"input: input/b.procreate\nsegments: 0\n"
+		"input: " + fsPath("input/b.procreate") + "\nsegments: 0\n"
 	check(t, run(t, dir, nil, "--list", "input"), 0, wantOut,
-		slogLine(slog.LevelWarn, "no timelapse video inside", "input", "input/b.procreate"))
+		slogLine(slog.LevelWarn, "no timelapse video inside", "input", fsPath("input/b.procreate")))
 }
 
 func TestVerifySingle(t *testing.T) {
@@ -142,16 +142,16 @@ func TestVerifyDirectoryMixed(t *testing.T) {
 	writeArchiveCorrupted(t, filepath.Join(dir, "input"), "c.procreate", stdThree(),
 		"video/segments/segment-1.mp4")
 	sum := streamsOf(t, segN(1))
-	reportA := "input: input/a.procreate\nsegments: 3\n\n" +
+	reportA := "input: " + fsPath("input/a.procreate") + "\nsegments: 3\n\n" +
 		fmt.Sprintf("1 ok    %s  2.00s  video/segments/segment-1.mp4\n", sum) +
 		fmt.Sprintf("2 ok    %s  2.00s  video/segments/segment-2.mp4\n", sum) +
 		fmt.Sprintf("3 ok    %s  2.00s  video/segments/segment-3.mp4\n", sum) +
 		"\nverify: ok, 3 segment(s), ~6.0 s of video\n"
-	reportC := "input: input/c.procreate\nsegments: 3\n\n" +
+	reportC := "input: " + fsPath("input/c.procreate") + "\nsegments: 3\n\n" +
 		"1 FAIL  segment video/segments/segment-1.mp4 is corrupted inside the archive: zip: checksum error\n" +
 		fmt.Sprintf("2 ok    %s  2.00s  video/segments/segment-2.mp4\n", sum) +
 		fmt.Sprintf("3 ok    %s  2.00s  video/segments/segment-3.mp4\n", sum)
 	check(t, run(t, dir, nil, "--verify", "input"), 1, reportA+"\n"+reportC,
-		slogLine(slog.LevelError, "diagnosis failed", "input", "input/c.procreate",
+		slogLine(slog.LevelError, "diagnosis failed", "input", fsPath("input/c.procreate"),
 			"err", "verify failed: 1 of 3 segment(s) are bad"))
 }
