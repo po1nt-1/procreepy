@@ -16,6 +16,15 @@
 
 set -euo pipefail
 
+# Same reason as run-tests.sh: the inherited working directory may be the
+# image's /src rather than the checkout, and every `go` below addresses
+# packages relative to the module root.
+cd "${CI_PROJECT_DIR:-$PWD}"
+if [ ! -f go.mod ]; then
+  echo "run-tests.hybrid.sh: no go.mod in $PWD (run from the module root)" >&2
+  exit 2
+fi
+
 readonly WIN_GO='/opt/go-win/bin/go.exe'
 readonly E2E_PKG='procreepy/internal/e2e'
 

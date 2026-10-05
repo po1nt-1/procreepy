@@ -84,8 +84,9 @@ ENV PATH="/opt/go-linux/bin:${PATH}"
 COPY run-tests.sh run-tests.hybrid.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/run-tests.sh /usr/local/bin/run-tests.hybrid.sh
 
-# Project is mounted here when run locally with podman. (GitLab CI overrides
-# the working dir to the cloned checkout and ignores this ENTRYPOINT, invoking
-# `run-tests.sh` from the job `script:` instead.)
+# Where a local `podman run -v "$PWD":/src` mounts the module. A CI job gets
+# its own checkout path and invokes run-tests.sh from the job `script:`, so
+# this WORKDIR would leave it outside the module — hence both scripts resolve
+# the root from $CI_PROJECT_DIR themselves instead of trusting the cwd.
 WORKDIR /src
 ENTRYPOINT ["/usr/local/bin/run-tests.sh"]

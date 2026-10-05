@@ -325,6 +325,13 @@ func TestInterrupt(t *testing.T) {
 	if testing.Short() {
 		t.Skip("large")
 	}
+	if os.PathSeparator == '\\' {
+		// Windows has no POSIX signals: os/exec's Signal(os.Interrupt) returns
+		// "not supported by windows", and delivering a real Ctrl+C needs
+		// GenerateConsoleCtrlEvent against a shared console group. The exit-130
+		// contract this pins is therefore Unix-only.
+		t.Skip("windows: os.Interrupt cannot be delivered to a child process")
+	}
 	dir := t.TempDir()
 	const n = 30
 	entries := map[string][]byte{"Document/document.data": []byte("doc"), "video/segments/": {}}

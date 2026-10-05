@@ -12,6 +12,16 @@
 
 set -euo pipefail
 
+# Do not trust the inherited working directory: the image carries WORKDIR
+# /src for local podman runs, while a CI job lives in its own clone path, and
+# a Windows go.exe started outside the module reports the useless "directory
+# prefix . does not contain main module". Resolve the root, then fail loudly.
+cd "${CI_PROJECT_DIR:-$PWD}"
+if [ ! -f go.mod ]; then
+  echo "run-tests.sh: no go.mod in $PWD (mount the module at /src, or run from its root)" >&2
+  exit 2
+fi
+
 # Windows Go on PATH for Wine. Inside the Windows process `go` resolves to
 # go.exe here; everything else (compile.exe, link.exe, the built
 # procreepy.exe, go tool covdata) is spawned as a child PE process that Wine
@@ -22,6 +32,7 @@ export WINEPATH='Z:\opt\go-win\bin'
 go() { wine /opt/go-win/bin/go.exe "$@"; }
 
 echo "== toolchain =="
+printf 'module root: %s\n' "$PWD"
 go version
 go env GOROOT GOOS GOARCH GOTOOLCHAIN GOPROXY CGO_ENABLED
 
