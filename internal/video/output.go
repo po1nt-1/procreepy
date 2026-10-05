@@ -38,7 +38,7 @@ func ResolveOutput(inputArg, outputArg string, hasOutput bool) (Output, error) {
 	if !hasOutput || outputArg == "-" {
 		return Output{Kind: OutStdout}, nil
 	}
-	if strings.HasSuffix(outputArg, string(os.PathSeparator)) || isDir(outputArg) {
+	if hasTrailingSeparator(outputArg) || isDir(outputArg) {
 		pipeLike := inputArg == "-"
 		if !pipeLike {
 			// A non-existent input is not pipe-like; it fails later with a
@@ -68,6 +68,15 @@ func deriveName(input string) string {
 		return b + ".mp4"
 	}
 	return b[:i] + ".mp4"
+}
+
+// hasTrailingSeparator reports whether p was written as a directory, i.e. it
+// ends in a path separator. os.IsPathSeparator is platform-aware on purpose:
+// on Windows both `videos\` and `videos/` count, because Win32 and Go accept
+// either, while on Unix a trailing backslash is an ordinary file-name
+// character and must not count.
+func hasTrailingSeparator(p string) bool {
+	return p != "" && os.IsPathSeparator(p[len(p)-1])
 }
 
 func isDir(p string) bool {

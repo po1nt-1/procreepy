@@ -54,6 +54,11 @@ func buildBinary() (string, error) {
 		return "", err
 	}
 	bin := filepath.Join(dir, "procreepy")
+	if os.PathSeparator == '\\' {
+		// Windows resolves an exec target by extension: without .exe every
+		// run below fails with "executable file not found in %PATH%".
+		bin += ".exe"
+	}
 	// -buildvcs=false: the build must not depend on the checkout's git
 	// state; in CI the process runs as another user than the file owner
 	// and git refuses with exit 128.
