@@ -159,13 +159,22 @@ veröffentlicht. Auf einem Mac mit Apple Silicon wird die arm64-Variante
 automatisch gewählt.
 
 ```bash
+# Docker
 docker run --rm -v "$PWD":/data -w /data \
+  registry.gitlab.com/po1nt-1/procreepy:latest artwork.procreate artwork.mp4
+
+# Podman (rootless, Linux): Benutzer zuordnen und Mount mit :Z umetikettieren
+podman run --rm --userns=keep-id --user "$(id -u):$(id -g)" \
+  -v "$PWD":/data:Z -w /data \
   registry.gitlab.com/po1nt-1/procreepy:latest artwork.procreate artwork.mp4
 ```
 
-`podman` ersetzt `docker` wortgleich. Eine Version pinnen: `:0.3.0` statt
-`:latest` (Image-Tags tragen kein `v`-Präfix). Details zu Dateieigentum und
-weiterem in [usage.md](usage.md#container-usage).
+Die beiden Engines sind nicht Flag für Flag austauschbar: Rootless Podman
+braucht `--userns=keep-id`, `--user` und — auf einem SELinux-Host — einen
+`:Z`-Mount, sonst scheitert der Lauf an fehlenden Rechten auf dem
+Ausgabeverzeichnis. Eine Version pinnen: `:0.3.0` statt `:latest` (Image-Tags
+tragen kein `v`-Präfix). Details zu Dateieigentum, SELinux und weiterem in
+[usage.md](usage.md#container-usage).
 
 ### Aus dem Quellcode bauen
 

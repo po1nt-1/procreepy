@@ -155,13 +155,21 @@ version से स्वतंत्र। सभी users के लिए inst
 है। Apple Silicon वाले Mac पर arm64 variant अपने आप चुना जाता है।
 
 ```bash
+# Docker
 docker run --rm -v "$PWD":/data -w /data \
+  registry.gitlab.com/po1nt-1/procreepy:latest artwork.procreate artwork.mp4
+
+# Podman (rootless, Linux): अपना user map करें और mount को :Z से relabel करें
+podman run --rm --userns=keep-id --user "$(id -u):$(id -g)" \
+  -v "$PWD":/data:Z -w /data \
   registry.gitlab.com/po1nt-1/procreepy:latest artwork.procreate artwork.mp4
 ```
 
-`docker` की जगह `podman` बिना बदलाव चलेगा। version pin करने के लिए `:latest` की
-जगह `:0.3.0` लिखें (image tags में `v` prefix नहीं होता)। फ़ाइलों के ownership और
-बाकी विवरण [usage.md](usage.md#container-usage) में हैं।
+दोनों engines flag-दर-flag अदल-बदल नहीं किए जा सकते: rootless Podman को
+`--userns=keep-id`, `--user` और — SELinux वाले host पर — `:Z` mount चाहिए, वरना
+run output directory की permission पर फ़ेल हो जाता है। version pin करने के लिए
+`:latest` की जगह `:0.3.0` लिखें (image tags में `v` prefix नहीं होता)। फ़ाइलों के
+ownership, SELinux और बाकी विवरण [usage.md](usage.md#container-usage) में हैं।
 
 ### Source से build
 

@@ -157,13 +157,22 @@ Image kontainer diterbitkan pada setiap rilis, untuk `linux/amd64` dan
 `linux/arm64`. Di Mac Apple Silicon, varian arm64 dipilih otomatis.
 
 ```bash
+# Docker
 docker run --rm -v "$PWD":/data -w /data \
+  registry.gitlab.com/po1nt-1/procreepy:latest artwork.procreate artwork.mp4
+
+# Podman (rootless, Linux): petakan pengguna, beri label ulang mount :Z
+podman run --rm --userns=keep-id --user "$(id -u):$(id -g)" \
+  -v "$PWD":/data:Z -w /data \
   registry.gitlab.com/po1nt-1/procreepy:latest artwork.procreate artwork.mp4
 ```
 
-`podman` menggantikan `docker` apa adanya. Untuk mematok versi gunakan `:0.3.0`
-alih-alih `:latest` (tag image tidak memakai awalan `v`). Rincian soal
-kepemilikan berkas dan lainnya ada di [usage.md](usage.md#container-usage).
+Kedua engine tidak bisa ditukar flag demi flag: Podman rootless memerlukan
+`--userns=keep-id`, `--user`, dan — pada host dengan SELinux — mount `:Z`, jika
+tidak proses gagal karena izin pada direktori keluaran. Untuk mematok versi
+gunakan `:0.3.0` alih-alih `:latest` (tag image tidak memakai awalan `v`).
+Rincian soal kepemilikan berkas, SELinux, dan lainnya ada di
+[usage.md](usage.md#container-usage).
 
 ### Build dari sumber
 

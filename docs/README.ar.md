@@ -149,13 +149,21 @@ tar -xzf procreepy_*_linux_amd64.tar.gz
 Mac بمعالج Apple Silicon يُنتقى متغيّر arm64 تلقائيًا.
 
 ```bash
+# Docker
 docker run --rm -v "$PWD":/data -w /data \
+  registry.gitlab.com/po1nt-1/procreepy:latest artwork.procreate artwork.mp4
+
+# Podman (rootless, Linux): طابِق المستخدم وأعد وسم موضع التحميل بـ :Z
+podman run --rm --userns=keep-id --user "$(id -u):$(id -g)" \
+  -v "$PWD":/data:Z -w /data \
   registry.gitlab.com/po1nt-1/procreepy:latest artwork.procreate artwork.mp4
 ```
 
-ويحلّ `podman` محلّ `docker` حرفيًا. ولتثبيت إصدار معيّن استخدم `:0.3.0` بدلًا من
-`:latest` (وسوم الصورة لا تحمل البادئة `v`). وتفاصيل ملكية الملفات وغيرها في
-[usage.md](usage.md#container-usage).
+والمحرّكان ليسا متكافئين خيارًا بخيار: إذ يحتاج Podman في وضع rootless إلى
+`--userns=keep-id` و`--user`، وعلى مضيف يعمل بـ SELinux إلى موضع تحميل بـ `:Z`،
+وإلّا فشل التشغيل بسبب الصلاحيات على مجلد الخرج. ولتثبيت إصدار معيّن استخدم
+`:0.3.0` بدلًا من `:latest` (وسوم الصورة لا تحمل البادئة `v`). وتفاصيل ملكية
+الملفات وSELinux وغيرها في [usage.md](usage.md#container-usage).
 
 ### البناء من المصدر
 
