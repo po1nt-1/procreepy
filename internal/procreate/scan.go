@@ -131,10 +131,12 @@ func FindSegments(members []Member, opts Options) ([]Segment, error) {
 	for _, s := range f.Segments {
 		present[s.Number] = true
 	}
-	lo, hi := 1, f.Segments[len(f.Segments)-1].Number
-	if f.Segments[0].Number < lo {
-		lo = f.Segments[0].Number
-	}
+	// Only interior holes are gaps. The numbering need not start at 1: Procreate
+	// prunes older segments as a recording grows, so a timelapse that begins at
+	// segment-5 is complete and plays correctly. Anchoring the expected range at
+	// 1 reported 1-4 as "missing" for almost every real artwork — a false alarm
+	// about a video that was never damaged.
+	lo, hi := f.Segments[0].Number, f.Segments[len(f.Segments)-1].Number
 	var missing []int
 	for n := lo; n <= hi; n++ {
 		if !present[n] {

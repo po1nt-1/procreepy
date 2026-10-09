@@ -18,8 +18,11 @@ type staged struct {
 	f     *countedFile
 	tmp   string
 	final string
-	// mtime, when non-zero, is stamped on the file before it is published.
+	// mtime and btime, when non-zero, are stamped on the file before it is
+	// published, so the output presents itself with the source artwork's dates
+	// rather than the moment of conversion.
 	mtime time.Time
+	btime time.Time
 	done  bool
 }
 
@@ -78,8 +81,11 @@ func (c *countedFile) Close() error { return c.file.Close() }
 // must have.
 func (c *countedFile) high() int64 { return c.peak }
 
-// setModTime asks publish to carry a source timestamp onto the output.
-func (s *staged) setModTime(t time.Time) { s.mtime = t }
+// setTimes asks publish to carry the source's dates onto the output. A zero
+// value leaves that timestamp to the file system.
+func (s *staged) setTimes(created, modified time.Time) {
+	s.btime, s.mtime = created, modified
+}
 
 // publish closes the scratch file and moves it onto the final path. The
 // timestamp is stamped before the move so the published file never briefly
@@ -103,6 +109,14 @@ func (s *staged) publish() error {
 			s.remove()
 			return &WriteError{Msg: "cannot set the timestamp of " + s.final + ": " + strerror(err)}
 		}
+	}
+	if !s.btime.IsZero() {
+		// Best effort, unlike the modification time above: only Windows records a
+		// settable creation time, so on every other platform this is a no-op by
+		// construction. A file system that refuses the attribute has still stored
+		// the bytes correctly, and losing a date is not worth discarding a
+		// finished conversion.
+		_ = setCreateTime(s.tmp, s.btime)
 	}
 	// os.Rename replaces an existing target on both POSIX and Windows (there it
 	// is MoveFileEx with MOVEFILE_REPLACE_EXISTING), so no per-OS shim is needed.

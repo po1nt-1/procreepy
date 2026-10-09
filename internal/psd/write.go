@@ -68,7 +68,7 @@ func Write(ctx context.Context, w io.WriteSeeker, doc *silica.Document) (int, er
 	if err := e.writeColorMode(); err != nil {
 		return 0, err
 	}
-	if err := e.writeResources(); err != nil {
+	if err := e.writeResources(ctx); err != nil {
 		return 0, err
 	}
 	if err := e.writeLayers(ctx); err != nil {
@@ -85,6 +85,9 @@ type encoder struct {
 	doc   *silica.Document
 	off   int64 // bytes written so far, i.e. the current file offset
 	count int   // layer records emitted
+	// merged caches the flattened image, which both the thumbnail resource and
+	// the merged section need.
+	merged *image.NRGBA
 }
 
 func (e *encoder) write(b []byte) error {
@@ -154,11 +157,22 @@ func (e *encoder) writeHeader() error {
 // requires (only indexed and duotone carry data here).
 func (e *encoder) writeColorMode() error { return e.u32(0) }
 
-func (e *encoder) writeResources() error {
+func (e *encoder) writeResources(ctx context.Context) error {
 	var body []byte
 	body = appendResource(body, resourceResolution, resolutionInfo(e.doc.DPI))
 	if len(e.doc.ICCProfile) > 0 {
 		body = appendResource(body, resourceICCProfile, e.doc.ICCProfile)
+	}
+	// The preview goes in the resource section, which precedes the merged image
+	// in the file, so the merged image is built here and cached for the writer
+	// that comes later. A document whose composite cannot be built still gets a
+	// valid PSD, just without a preview.
+	if merged, err := e.mergedImage(ctx); err == nil {
+		if thumb := thumbnailResource(merged); thumb != nil {
+			body = appendResource(body, resourceThumbnail, thumb)
+		}
+	} else if ctx.Err() != nil {
+		return err
 	}
 	if err := e.u32(uint32(len(body))); err != nil {
 		return err
@@ -566,6 +580,21 @@ func (e *encoder) writeMerged(ctx context.Context) error {
 }
 
 func (e *encoder) mergedImage(ctx context.Context) (*image.NRGBA, error) {
+	// Built once and kept: the resource section needs it for the preview and the
+	// merged section needs it again later, and decoding every tile twice is the
+	// most expensive thing an export does.
+	if e.merged != nil {
+		return e.merged, nil
+	}
+	img, err := e.buildMergedImage(ctx)
+	if err != nil {
+		return nil, err
+	}
+	e.merged = img
+	return img, nil
+}
+
+func (e *encoder) buildMergedImage(ctx context.Context) (*image.NRGBA, error) {
 	canvas := image.Rect(0, 0, e.doc.Width, e.doc.Height)
 	if e.doc.Composite != nil {
 		img, err := e.doc.ImageIn(ctx, e.doc.Composite, canvas)
@@ -579,6 +608,18 @@ func (e *encoder) mergedImage(ctx context.Context) (*image.NRGBA, error) {
 		// layer stack is still intact, so fall back to compositing it.
 	}
 	return e.compositeLayers(ctx, canvas)
+}
+
+// CompositeStack alpha-composites the document's visible layers in Normal mode,
+// bottom-most first, over its background.
+//
+// It exists for the real-corpus suite, which composites the layer stack and
+// compares it against the thumbnail Procreate stored. That is the only check
+// that can catch an inverted layer order: the merged image an export writes
+// comes from doc.Composite, which the archive supplies already flattened and
+// which therefore looks correct no matter what order the stack is read in.
+func CompositeStack(ctx context.Context, doc *silica.Document, canvas image.Rectangle) (*image.NRGBA, error) {
+	return (&encoder{doc: doc}).compositeLayers(ctx, canvas)
 }
 
 // compositeLayers alpha-composites the visible raster layers in Normal mode.

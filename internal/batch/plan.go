@@ -8,23 +8,51 @@ import (
 )
 
 // Output tree layout. Directory mode keeps the artifacts of one run in separate
-// trees by purpose: timelapses are what most runs are for, projects are what
-// goes back into Procreate, and PSDs are an optional heavier export.
+// trees, each named after the format it holds — one naming rule for all three,
+// so the layout reads the same whichever tree you look at first.
 const (
-	// DefaultOutputDir is the OUTPUT root used when none is given.
-	DefaultOutputDir = "output"
 	// TimelapseDir holds the joined MP4s.
-	TimelapseDir = "timelapses"
+	TimelapseDir = "mp4"
 	// ProjectDir holds the re-importable .procreepy.procreate archives.
-	ProjectDir = "projects"
+	ProjectDir = "procreate"
 	// PSDDir holds the layered PSD exports.
 	PSDDir = "psd"
 
 	// ProjectSuffix is appended to the source stem for the slimmed archive.
 	ProjectSuffix = ".procreepy.procreate"
 
+	// OutputSuffix names the default OUTPUT root after its input.
+	OutputSuffix = "_procreepy"
+	// fallbackOutputDir is used when the input path yields no usable name, as a
+	// volume root does.
+	fallbackOutputDir = "output" + OutputSuffix
+
 	procreateExt = ".procreate"
 )
+
+// DefaultOutputDir returns the OUTPUT root to use when none was given: the
+// input directory's own name plus _procreepy, relative to the current
+// directory.
+//
+// A fixed "output" would send every run to the same place, so converting
+// several directories in a row either overwrote the previous results or forced
+// an explicit OUTPUT every time. Naming the root after its input keeps runs
+// apart with no extra typing, and keeping it in the current directory means an
+// input on a read-only disk or a mounted archive still works.
+//
+// The path is resolved before the name is taken, so "." and ".." yield the
+// directory's real name rather than themselves.
+func DefaultOutputDir(inDir string) string {
+	name := ""
+	if abs, err := filepath.Abs(inDir); err == nil {
+		name = filepath.Base(filepath.Clean(abs))
+	}
+	switch name {
+	case "", ".", "..", "/", `\`:
+		return fallbackOutputDir
+	}
+	return name + OutputSuffix
+}
 
 // Targets are the output paths one input produces. PSD is empty when PSD
 // export is off.

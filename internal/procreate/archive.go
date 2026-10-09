@@ -65,6 +65,26 @@ func (a *Archive) Segments(opts Options) ([]Segment, error) {
 	return FindSegments(a.Members(), opts)
 }
 
+// HasTimelapse reports whether path holds any timelapse segment, reading only
+// the archive's central directory — no member is decompressed.
+//
+// Directory mode needs this to tell a finished artwork from an interrupted one.
+// An artwork recorded with the timelapse off produces a project (and a PSD)
+// but no video, so its output set is complete while a file is missing, and
+// without this check every such artwork would be rebuilt on every run.
+func HasTimelapse(path string) (bool, error) {
+	a, err := Open(path, path)
+	if err != nil {
+		return false, err
+	}
+	defer a.Close()
+	segs, err := a.Segments(Options{AllowEmpty: true})
+	if err != nil {
+		return false, err
+	}
+	return len(segs) > 0, nil
+}
+
 // ReadMember returns the full uncompressed bytes of a member (CRC verified).
 func (a *Archive) ReadMember(name string) ([]byte, error) {
 	f, err := a.member(name)

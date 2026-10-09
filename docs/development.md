@@ -66,13 +66,13 @@ Without `make`, the raw equivalent of a build is
 |---|---|
 | `cmd/procreepy` | entry point |
 | `internal/cli` | flag parsing, dispatch, logger, exit codes, help and version text |
-| `internal/batch` | directory mode: discovery, output planning, collision suffixes |
+| `internal/batch` | directory mode: discovery, output planning, collision suffixes, packing projects into `procreate.zip` |
 | `internal/video` | conversion orchestration, `--list`/`--verify` reports, spooling and atomic writes, per-OS shims |
 | `internal/procreate` | ZIP open and validate, segment scan and numeric sort, the slimmed raw-ZIP copy |
 | `internal/mp4` | the MP4 box parser and writer: moov-first emit, stream copy, `stco`/`co64` switch |
 | `internal/procodec` | the two compressed containers Procreate uses for layer tiles (LZ4, LZO1X-1) |
 | `internal/silica` | reads `Document.archive` (binary plist / NSKeyedArchiver) and the tiles it references; feeds `--psd` |
-| `internal/psd` | writes the 8-bit RGBA PSD |
+| `internal/psd` | writes the 8-bit RGBA PSD, including the embedded preview resource |
 | `internal/testkit` | builds synthetic MP4 segments and `.procreate` archives for tests |
 | `internal/fixture` | regression suite against a real `.procreate` corpus |
 | `internal/e2e` | golden-output suite driving the compiled binary as a black box |

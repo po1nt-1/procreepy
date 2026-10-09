@@ -85,7 +85,7 @@ func TestHelp(t *testing.T) {
 			"--tmpdir DIR      where to put temporary files (default: $TMPDIR, else /var/tmp, else the system temp directory)",
 			"-q, --quiet       only print warnings and errors to stderr",
 			"--                stop option parsing; treat the remaining arguments as positional",
-			"For a single file, omitted OUTPUT means stdout; for directory input, omitted OUTPUT defaults to " + batch.DefaultOutputDir + "/.",
+			"For a single file, omitted OUTPUT means stdout; for directory input, omitted OUTPUT defaults to <INPUT>" + batch.OutputSuffix + "/ in the current directory.",
 			"Messages and diagnostics go to stderr; stdout carries only video (or the --list/--verify report).",
 		}
 		for _, want := range expected {
@@ -326,7 +326,9 @@ func TestDirectoryModeWritesBothTrees(t *testing.T) {
 	testkit.Project(2).Write(t, inDir, "a.procreate")
 	outDir := filepath.Join(t.TempDir(), "out")
 
-	code, _, errOut := runCLI(t, inDir, outDir)
+	// --no-zip keeps the projects as loose files, which is what this test reads.
+	// The packed default has its own coverage in internal/batch.
+	code, _, errOut := runCLI(t, "--no-zip", inDir, outDir)
 	if code != 0 {
 		t.Fatalf("code = %d, want 0 (stderr: %s)", code, errOut)
 	}

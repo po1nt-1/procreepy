@@ -40,24 +40,28 @@ Eine Datei hinein, ein Video heraus:
 my-art.procreate  →  procreepy  →  my-art.mp4
 ```
 
-Ein Ordner hinein, zwei Ordner heraus:
+Ein Ordner hinein; heraus kommen ein Video-Baum und ein Projektarchiv:
 
 ```text
-input/                          output/
-├── Cat.procreate         →     ├── timelapses/
+input/                          input_procreepy/
+├── Cat.procreate         →     ├── mp4/
 ├── Landscape.procreate   →     │   ├── Cat.mp4
 └── Sketch.procreate      →     │   ├── Landscape.mp4
                                 │   └── Sketch.mp4
-                                └── projects/
-                                    ├── Cat.procreepy.procreate
-                                    ├── Landscape.procreepy.procreate
-                                    └── Sketch.procreepy.procreate
+                                └── procreate.zip   (die schlanken Projekte)
 ```
 
-- `timelapses/` enthält die Videos.
-- `projects/` enthält eine Kopie jeder Arbeit **ohne den Zeitraffer** — deutlich
-  kleiner, und Sie können sie wieder in Procreate importieren. Alles andere im
-  Projekt bleibt Byte für Byte erhalten.
+- `mp4/` enthält die Videos.
+- `procreate.zip` enthält eine Kopie jeder Arbeit **ohne den Zeitraffer** —
+  deutlich kleiner, und Sie können sie wieder in Procreate importieren. Alles
+  andere im Projekt bleibt Byte für Byte erhalten. Es ist ein normales Zip mit
+  einem Ordner `procreate/` darin, fertig zum Übertragen auf ein iPad; mit
+  `--no-zip` bleibt dieser Ordner `procreate/` auf der Platte statt des Archivs.
+- Der Ausgabeordner wird nach der Eingabe benannt (`input/` → `input_procreepy/`)
+  und im Verzeichnis angelegt, aus dem Sie den Befehl starten. Geben Sie einen
+  zweiten Pfad an, um ihn selbst zu wählen.
+- Jede Ausgabe behält das Datum der Datei, aus der sie stammt, sodass das erneute
+  Importieren eines Projekts in Procreate Ihre Galerie nicht umsortiert.
 - `input/` bleibt genau so, wie es war.
 
 ## Installation
@@ -216,9 +220,9 @@ Ergebnis: `videos/artwork.mp4`. Der Ordner muss bereits existieren.
 procreepy input/
 ```
 
-Liest jede `.procreate`-Datei in `input/` und schreibt nach `output/`, wie unter
-[Was dabei herauskommt](#was-dabei-herauskommt) gezeigt. Um das Ziel selbst zu
-wählen:
+Liest jede `.procreate`-Datei in `input/` und schreibt nach `input_procreepy/`,
+wie unter [Was dabei herauskommt](#was-dabei-herauskommt) gezeigt. Um das Ziel
+selbst zu wählen:
 
 ```bash
 procreepy input/ ~/Videos/timelapses
@@ -233,14 +237,19 @@ procreepy -r input/ output/
 Was während des Laufs passiert:
 
 - Der Fortschritt wird pro Datei mit einer Zeile gemeldet.
-- Eine Datei, deren Zeitraffer nie aufgenommen wurde, wird **mit einer Warnung
-  übersprungen**. Für sie wird nichts geschrieben, der Lauf geht weiter.
+- Eine Datei, deren Zeitraffer nie aufgenommen wurde, erzeugt dennoch ihr
+  schlankes Projekt (und mit `--psd` ihr PSD) — nur das Video entfällt, mit einem
+  Hinweis, und der Lauf geht weiter.
 - Eine beschädigte Datei wird als Fehler gemeldet, der Lauf macht mit den
   übrigen weiter, und der Befehl endet mit Exit-Code `1`, damit Skripte es
   merken.
 - Denselben Befehl zweimal auszuführen wiederholt keine fertige Arbeit: Werke,
   deren Ergebnisse schon vorliegen, werden übersprungen. Mit `-f` werden sie
   trotzdem neu gebaut.
+- Nach einem Lauf ohne Fehler werden die schlanken Projekte in `procreate.zip`
+  gepackt und der Ordner `procreate/` entfernt. Ein Lauf mit irgendeinem Fehler
+  lässt den Ordner ungepackt, damit Sie ihn prüfen und fortsetzen können.
+  `--no-zip` behält den Ordner immer.
 
 ## Datei vorab prüfen
 
@@ -291,11 +300,19 @@ eine Photoshop-Datei mit Ebenen, die sich in Photoshop, Affinity Photo, GIMP und
 Datei bricht es ab mit `--psd needs a directory INPUT; it writes into
 OUTPUT/psd/`.
 
-Das PSD ist ein Export, keine perfekte Kopie. Es behält den Ebenenbaum und die
-Namen, Sichtbarkeit, Deckkraft, Füllmethoden und das Bild selbst; es behält
-**nicht** Ebenenmasken, Schnittmasken-Beziehungen oder editierbaren Text. Lesen
-Sie [was das PSD bewahrt und was es verliert](usage.md#export-a-psd), bevor Sie
-es für fertige Arbeiten verwenden. Die `.procreate`-Datei bleibt Ihr Original.
+Das PSD ist ein Export, keine perfekte Kopie. Es behält den Ebenenbaum, Aufbau
+und Reihenfolge der Gruppen, die Namen, Sichtbarkeit, Deckkraft, Füllmethoden und
+das Bild selbst; es behält **nicht** Ebenenmasken, Schnittmasken-Beziehungen oder
+editierbaren Text. Lesen Sie
+[was das PSD bewahrt und was es verliert](usage.md#export-a-psd), bevor Sie es für
+fertige Arbeiten verwenden. Die `.procreate`-Datei bleibt Ihr Original.
+
+Das PSD bettet außerdem ein kleines Vorschaubild ein, sodass Apps, die es lesen
+(Photoshop, Affinity, GIMP), eine Miniaturansicht zeigen. Das bringt den Windows-
+Explorer für sich genommen **nicht** dazu, eine Miniatur zu zeichnen: Der
+Explorer braucht einen registrierten Miniatur-Handler für `.psd`, den Windows
+nicht mitliefert (Photoshop oder ein Paket wie SageThumbs liefert einen), und für
+`.procreate` gibt es gar keinen.
 
 ## Was mit Ihren Dateien passiert
 
@@ -308,9 +325,14 @@ es für fertige Arbeiten verwenden. Die `.procreate`-Datei bleibt Ihr Original.
 - **Ordner-Läufe veröffentlichen pro Werk als Satz.** Video, schlankes Projekt
   und PSD eines Werks erscheinen gemeinsam oder gar nicht — ein Video ohne sein
   Projekt bekommen Sie nie.
-- **Erneutes Ausführen ist sicher.** Fertige Werke werden übersprungen. Ein Satz,
-  der durch einen Abbruch unvollständig blieb, wird komplett neu gebaut. `-f`
-  baut alles neu.
+- **Daten werden übernommen.** Jede Ausgabe — Video, schlankes Projekt und PSD —
+  erhält das Änderungsdatum der `.procreate`-Datei, aus der sie stammt (unter
+  Windows zusätzlich das Erstellungsdatum), sodass ein wieder in Procreate
+  importiertes Projekt seinen Platz in der Galerie behält.
+- **Erneutes Ausführen ist sicher.** Fertige Werke werden übersprungen — egal, ob
+  die Projekte noch ein Ordner sind oder schon in `procreate.zip` gepackt. Ein
+  Satz, der durch einen Abbruch unvollständig blieb, wird komplett neu gebaut.
+  `-f` baut alles neu.
 - **Eine einzelne Datei umzuwandeln ersetzt das Ziel**, falls es existiert —
   nachdem das neue Video vollständig geschrieben ist.
 - **Große Dateien brauchen temporären Platz.** Große Zeitraffer werden über eine
@@ -343,7 +365,7 @@ procreepy [options] INPUT [OUTPUT]
 Standardeingabe. `OUTPUT` ist ein Dateiname, ein Ordner oder `-` für die
 Standardausgabe. Bei einer einzelnen Datei bedeutet ein fehlendes `OUTPUT`, dass
 das Video in die Standardausgabe geht; bei einem Ordner ist der Standard
-`output/`.
+`<INPUT>_procreepy/` im aktuellen Verzeichnis.
 
 | Option | Wirkung | Gilt für |
 |---|---|---|
@@ -354,6 +376,7 @@ das Video in die Standardausgabe geht; bei einem Ordner ist der Standard
 | `-r`, `--recursive` | auch Unterordner verarbeiten | nur Ordner-Eingabe |
 | `-f`, `--force` | bereits vorhandene Ergebnisse überschreiben | nur Ordner-Eingabe |
 | `--psd` | zusätzlich ein Ebenen-PSD pro Werk exportieren | nur Ordner-Eingabe |
+| `--no-zip` | die Projekte als Ordner `procreate/` lassen statt `procreate.zip` zu packen | nur Ordner-Eingabe |
 | `--strict` | Lücken in der Segmentnummerierung als Fehler behandeln, nicht als Warnung | Datei oder Ordner |
 | `--tmpdir DIR` | wohin temporäre Dateien gelegt werden | immer |
 | `-q`, `--quiet` | nur Warnungen und Fehler ausgeben | immer |

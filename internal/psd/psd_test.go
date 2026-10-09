@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/jpeg"
 	"os"
 	"path/filepath"
 	"testing"
@@ -666,3 +667,103 @@ func utf16String(u []uint16) string {
 
 var _ = fmt.Sprintf
 var _ = color.NRGBA{}
+
+// TestThumbnailResource: the export embeds a preview (image resource 1036), so
+// Photoshop, Bridge and the Windows thumbnail packs that handle .psd have
+// something to show without decoding the whole document.
+func TestThumbnailResource(t *testing.T) {
+	b, doc := writePSD(t)
+
+	body := resourceSection(t, b)
+	payload, ok := findResource(body, 1036)
+	if !ok {
+		t.Fatal("no thumbnail resource (id 1036) in the file")
+	}
+	if len(payload) < 28 {
+		t.Fatalf("thumbnail payload is %d bytes, too short for the header", len(payload))
+	}
+	format := binary.BigEndian.Uint32(payload[0:4])
+	w := int(binary.BigEndian.Uint32(payload[4:8]))
+	h := int(binary.BigEndian.Uint32(payload[8:12]))
+	rowBytes := int(binary.BigEndian.Uint32(payload[12:16]))
+	sizeAfter := int(binary.BigEndian.Uint32(payload[20:24]))
+	bpp := binary.BigEndian.Uint16(payload[24:26])
+	planes := binary.BigEndian.Uint16(payload[26:28])
+
+	if format != 1 {
+		t.Errorf("format = %d, want 1 (kJpegRGB)", format)
+	}
+	if bpp != 24 || planes != 1 {
+		t.Errorf("bitspixel/planes = %d/%d, want 24/1", bpp, planes)
+	}
+	if want := (w*24 + 31) / 32 * 4; rowBytes != want {
+		t.Errorf("widthbytes = %d, want %d", rowBytes, want)
+	}
+	if sizeAfter != len(payload)-28 {
+		t.Errorf("sizeafter = %d, want %d", sizeAfter, len(payload)-28)
+	}
+	// The preview must not be larger than the canvas, nor exceed the long-side
+	// bound that keeps it small.
+	if w > doc.Width || h > doc.Height {
+		t.Errorf("preview %dx%d is larger than the canvas %dx%d", w, h, doc.Width, doc.Height)
+	}
+	if w > 256 || h > 256 {
+		t.Errorf("preview %dx%d exceeds the 256-pixel bound", w, h)
+	}
+
+	img, err := jpeg.Decode(bytes.NewReader(payload[28:]))
+	if err != nil {
+		t.Fatalf("preview is not decodable JPEG: %v", err)
+	}
+	if got := img.Bounds(); got.Dx() != w || got.Dy() != h {
+		t.Errorf("decoded %dx%d, header says %dx%d", got.Dx(), got.Dy(), w, h)
+	}
+}
+
+// resourceSection returns the image-resource block body: a 26-byte header, the
+// colour-mode section, then this section's own length.
+func resourceSection(t *testing.T, b []byte) []byte {
+	t.Helper()
+	if len(b) < 34 {
+		t.Fatalf("file is %d bytes, too short", len(b))
+	}
+	colorLen := int(binary.BigEndian.Uint32(b[26:30]))
+	at := 30 + colorLen
+	if len(b) < at+4 {
+		t.Fatalf("file truncated before the resource section")
+	}
+	n := int(binary.BigEndian.Uint32(b[at : at+4]))
+	at += 4
+	if len(b) < at+n {
+		t.Fatalf("resource section claims %d bytes, file has %d", n, len(b)-at)
+	}
+	return b[at : at+n]
+}
+
+// findResource walks the resource blocks looking for one id.
+func findResource(body []byte, id uint16) ([]byte, bool) {
+	for len(body) >= 12 {
+		if string(body[0:4]) != "8BIM" {
+			return nil, false
+		}
+		got := binary.BigEndian.Uint16(body[4:6])
+		// The name is a Pascal string padded to an even length; the writer emits
+		// an empty one, which is two zero bytes.
+		at := 8
+		size := int(binary.BigEndian.Uint32(body[at : at+4]))
+		at += 4
+		if len(body) < at+size {
+			return nil, false
+		}
+		data := body[at : at+size]
+		if got == id {
+			return data, true
+		}
+		at += size
+		if size%2 == 1 {
+			at++
+		}
+		body = body[at:]
+	}
+	return nil, false
+}

@@ -30,8 +30,8 @@ procreepy [options] INPUT [OUTPUT]
 | file | `-` | the video goes to stdout |
 | file | omitted | the video goes to stdout |
 | `-` (stdin) | file, directory or `-` | same as above; a name cannot be derived from stdin, so a directory destination is an error |
-| directory | directory | two output trees, see [Convert a folder](#convert-a-folder) |
-| directory | omitted | the same, under `output/` |
+| directory | directory | a video tree and a project archive, see [Convert a folder](#convert-a-folder) |
+| directory | omitted | the same, under `<INPUT>_procreepy/` in the current directory |
 | directory | `-` | error: a set of results cannot go to stdout |
 
 All four single-file combinations are supported: `FILE OUTPUT`, `FILE -`,
@@ -57,20 +57,27 @@ your session (exit code `2`).
 ## Convert a folder
 
 ```bash
-procreepy input/              # -> output/
+procreepy input/              # -> input_procreepy/
 procreepy input/ out/         # -> out/
 procreepy -r input/ out/      # including sub-folders
 procreepy -f input/ out/      # rebuild everything
 procreepy --psd input/ out/   # also export PSDs
+procreepy --no-zip input/ out/ # keep a procreate/ folder, do not pack a zip
 ```
 
-Each converted artwork produces a pair of results in two trees:
+Each converted artwork produces a video and a slim project:
 
 ```text
-out/timelapses/NAME.mp4                  the joined timelapse
-out/projects/NAME.procreepy.procreate    the project without the timelapse
-out/psd/NAME.psd                         only with --psd
+out/mp4/NAME.mp4                           the joined timelapse
+out/procreate/NAME.procreepy.procreate     the project without the timelapse
+out/psd/NAME.psd                           only with --psd
 ```
+
+After a run with no failures the slim projects are packed into
+`out/procreate.zip` — a plain zip whose single top-level folder is `procreate/`,
+so it unpacks to exactly the layout above — and the loose `out/procreate/` folder
+is removed. `--no-zip` keeps the folder and writes no archive; see
+[Re-running, skipping and failures](#re-running-skipping-and-failures).
 
 ### Naming
 
@@ -88,11 +95,13 @@ to a non-Apple file system (`._Foo.procreate`).
 
 ### The slim project
 
-`projects/NAME.procreepy.procreate` is the same archive with the
+`procreate/NAME.procreepy.procreate` is the same archive with the
 `video/segments/segment-N.mp4` members removed. Every other member is carried
 over byte for byte, preserving order, compression method and timestamps, so the
-project remains a valid Procreate document. It keeps the modification time of
-its source, so re-importing it into Procreate does not reshuffle your gallery.
+project remains a valid Procreate document. Like every output it is stamped with
+the modification time of its source (and, on Windows, the creation time too), so
+re-importing it into Procreate does not reshuffle your gallery by date. On Linux
+only the modification time is set — the kernel exposes no API for a birth time.
 
 This is also the way to reclaim space: the timelapse is usually the largest part
 of a `.procreate` file.
@@ -105,31 +114,52 @@ of a `.procreate` file.
 - `-f` (`--force`) overwrites outputs that already exist.
 - Each artwork's results are staged to scratch files and published **together**.
   You never get a video without its project.
-- A file with no recorded timelapse is a **warning**, not an error. Nothing is
-  written for it and the run continues.
+- A file with no recorded timelapse is **not** an error: its slim project (and,
+  under `--psd`, its PSD) is written just the same, only the video is skipped,
+  logged `no timelapse inside, wrote the project without a video`. It counts
+  under `no_video` in the summary, not `failed`.
 - A corrupt file is an **error**. The run continues with the remaining files, the
   failure appears in the summary, and the command exits with code `1`.
+- **Packing.** After a run with no failures, the projects are packed into
+  `OUTPUT/procreate.zip` (top-level folder `procreate/`, members stored
+  uncompressed since a `.procreate` is already a zip, each entry carrying its
+  source's date) and the loose `procreate/` folder is removed. A run with **any**
+  failure skips packing and leaves the folder in place, because the folder is the
+  material for diagnosing and resuming. `--no-zip` disables packing entirely.
+- **Resume after packing.** Once the folder is gone, "already done" is read from
+  the names inside `procreate.zip`, so a second run still skips finished artworks
+  and re-packs rather than rebuilding everything. Projects still on disk win over
+  same-named entries, which is how `-f` takes effect.
 
 ### What a run looks like
 
 All of this goes to stderr, one structured record per line:
 
 ```text
-level=INFO msg="batch conversion started" files=4 input=input/ timelapses=output/timelapses/ projects=output/projects/
+level=INFO msg="batch conversion started" files=4 input=input/ timelapses=output/mp4/ projects=output/procreate/
 level=ERROR msg="file conversion failed" input="input/Corrupt file.procreate" err="input is not a valid ZIP archive: input/Corrupt file.procreate (not a .procreate file, or truncated/corrupted)"
-level=INFO msg=converted input="input/Landscape v2.procreate" timelapse="output/timelapses/Landscape v2.mp4" project="output/projects/Landscape v2.procreepy.procreate" removed_segments=17 video_size="6.7 MiB"
-level=WARN msg="no timelapse video inside, skipped" input="input/No Timelapse.procreate"
-level=INFO msg=converted input="input/Portrait of a Cat.procreate" timelapse="output/timelapses/Portrait of a Cat.mp4" project="output/projects/Portrait of a Cat.procreepy.procreate" removed_segments=18 video_size="4.1 MiB"
+level=INFO msg=converted input="input/Landscape v2.procreate" timelapse="output/mp4/Landscape v2.mp4" project="output/procreate/Landscape v2.procreepy.procreate" removed_segments=17 video_size="6.7 MiB"
+level=INFO msg="no timelapse inside, wrote the project without a video" input="input/No Timelapse.procreate" project="output/procreate/No Timelapse.procreepy.procreate"
+level=INFO msg=converted input="input/Portrait of a Cat.procreate" timelapse="output/mp4/Portrait of a Cat.mp4" project="output/procreate/Portrait of a Cat.procreepy.procreate" removed_segments=18 video_size="4.1 MiB"
 level=INFO msg="batch completed" converted=2 existed=0 no_video=1 failed=1
 ```
 
-`removed_segments` is how many segment members were dropped from the slim
-project; `video_size` is their total compressed size inside the archive.
+The field keys `timelapses=` and `projects=` keep their names; their values are
+the `mp4/` and `procreate/` trees. `removed_segments` is how many segment members
+were dropped from the slim project; `video_size` is their total compressed size
+inside the archive.
+
+This run had a failure, so the project folder is left in place. A clean run ends
+instead with a packing line and no `procreate/` folder on disk:
+
+```text
+level=INFO msg="projects packed for transfer" archive=output/procreate.zip projects=2
+```
 
 A second run over the same input reports, per finished artwork:
 
 ```text
-level=INFO msg="skipped, outputs already exist (use --force to overwrite)" input="input/Landscape v2.procreate" timelapse="output/timelapses/Landscape v2.mp4" project="output/projects/Landscape v2.procreepy.procreate"
+level=INFO msg="skipped, outputs already exist (use --force to overwrite)" input="input/Landscape v2.procreate" timelapse="output/mp4/Landscape v2.mp4" project="output/procreate/Landscape v2.procreepy.procreate"
 ```
 
 ## Inspect before converting
@@ -194,10 +224,15 @@ Both accept a directory and then walk every file in it.
 
 ### `--strict`
 
-By default, a gap in the segment numbering (`segment-1`, `segment-3`) is a
-warning and the available segments are joined. With `--strict` a gap is an error
-(exit code `5`) and nothing is produced. Segment names without a number are
-always ignored with a warning.
+By default, an **interior** gap in the segment numbering (`segment-1`,
+`segment-3`) is a warning and the available segments are joined. With `--strict`
+a gap is an error (exit code `5`) and nothing is produced. Segment names without
+a number are always ignored with a warning.
+
+A sequence that simply starts above 1 (say `segment-5` onward) is **not** a gap:
+Procreate prunes the oldest segments as a recording grows, so such a timelapse is
+complete and plays correctly. Only holes between the first and last segment
+present are reported.
 
 ## Export a PSD
 
@@ -222,7 +257,14 @@ level=INFO msg="psd exported" input="input/Portrait of a Cat.procreate" psd="out
 - the DPI and the embedded ICC profile;
 - a merged composite taken verbatim from Procreate's own flattened render. When
   that is missing or damaged, the visible layers are composited in Normal mode
-  as an approximation.
+  as an approximation;
+- an embedded preview image (image resource 1036, a JPEG whose long side is 256
+  px), built from that same composite, so a PSD viewer can show a thumbnail.
+
+Note the preview does not, on its own, make Windows Explorer draw a thumbnail:
+Explorer needs a registered thumbnail handler for the file type, which Windows
+ships for neither `.psd` nor `.procreate`. A pack such as SageThumbs, or
+Photoshop itself, supplies one for `.psd`.
 
 **What it does not preserve**
 
@@ -286,6 +328,7 @@ docker run --rm -i registry.gitlab.com/po1nt-1/procreepy:latest - \
 | `-r`, `--recursive` | also process sub-directories, mirroring their structure | directory INPUT only | `procreepy -r input/ out/` |
 | `-f`, `--force` | overwrite outputs that already exist (default: skip them) | directory INPUT only | `procreepy -f input/ out/` |
 | `--psd` | also export a layered `.psd` per artwork into `OUTPUT/psd/` | directory INPUT only | `procreepy --psd input/ out/` |
+| `--no-zip` | leave the projects as a `procreate/` folder instead of packing `procreate.zip` | directory INPUT only | `procreepy --no-zip input/ out/` |
 | `--strict` | treat missing segment numbers as errors instead of warnings | file or directory INPUT | `procreepy --strict art.procreate out.mp4` |
 | `--tmpdir DIR` | where to put temporary files | always | `procreepy --tmpdir /var/tmp input/` |
 | `-q`, `--quiet` | print only warnings and errors to stderr | always | `procreepy -q input/` |
@@ -298,7 +341,7 @@ Combinations that are rejected with exit code `2`:
 | `--psd` with a file or stdin INPUT | `--psd needs a directory INPUT; it writes into OUTPUT/psd/` |
 | `--psd` together with `--list` or `--verify` | `--psd cannot be combined with --list or --verify` |
 | `--list` or `--verify` with an OUTPUT argument | `--list and --verify take a single INPUT and no OUTPUT` |
-| a directory INPUT with `-` as OUTPUT | `cannot write a directory of results to stdout; give an output directory (default: output/)` |
+| a directory INPUT with `-` as OUTPUT | `cannot write a directory of results to stdout; give an output directory (default: <INPUT>_procreepy/)` |
 | a directory INPUT whose OUTPUT exists as a file | `output path exists and is not a directory: NAME` |
 | `OUTPUT` naming the same file as `INPUT` | `OUTPUT is the same file as INPUT: NAME` |
 | a video destined for stdout when stdout is a terminal | `refusing to write video data to a terminal; redirect stdout …` |

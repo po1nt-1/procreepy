@@ -40,24 +40,28 @@ Un fichier en entrée, une vidéo en sortie :
 my-art.procreate  →  procreepy  →  my-art.mp4
 ```
 
-Un dossier en entrée, deux dossiers en sortie :
+Un dossier en entrée ; en sortie, une arborescence de vidéos et une archive de projets :
 
 ```text
-input/                          output/
-├── Cat.procreate         →     ├── timelapses/
+input/                          input_procreepy/
+├── Cat.procreate         →     ├── mp4/
 ├── Landscape.procreate   →     │   ├── Cat.mp4
 └── Sketch.procreate      →     │   ├── Landscape.mp4
                                 │   └── Sketch.mp4
-                                └── projects/
-                                    ├── Cat.procreepy.procreate
-                                    ├── Landscape.procreepy.procreate
-                                    └── Sketch.procreepy.procreate
+                                └── procreate.zip   (les projets allégés)
 ```
 
-- `timelapses/` contient les vidéos.
-- `projects/` contient une copie de chaque œuvre **sans le timelapse** :
+- `mp4/` contient les vidéos.
+- `procreate.zip` contient une copie de chaque œuvre **sans le timelapse** :
   beaucoup plus légère, et réimportable dans Procreate. Tout le reste du projet
-  est conservé octet pour octet.
+  est conservé octet pour octet. C'est un zip ordinaire contenant un dossier
+  `procreate/`, prêt à être transféré sur un iPad ; l'option `--no-zip` laisse ce
+  dossier `procreate/` sur le disque au lieu de l'archive.
+- Le dossier de sortie est nommé d'après celui d'entrée (`input/` →
+  `input_procreepy/`) et créé dans le répertoire d'où vous lancez la commande.
+  Donnez un second chemin pour le choisir vous-même.
+- Chaque sortie conserve la date du fichier dont elle provient, si bien que
+  réimporter un projet dans Procreate ne réorganise pas votre galerie.
 - `input/` reste exactement tel qu'il était.
 
 ## Installation
@@ -218,8 +222,8 @@ Résultat : `videos/artwork.mp4`. Le dossier doit déjà exister.
 procreepy input/
 ```
 
-Lit chaque `.procreate` de `input/` et écrit dans `output/`, comme montré dans
-[Ce que vous obtenez](#ce-que-vous-obtenez). Pour choisir vous-même la
+Lit chaque `.procreate` de `input/` et écrit dans `input_procreepy/`, comme
+montré dans [Ce que vous obtenez](#ce-que-vous-obtenez). Pour choisir vous-même la
 destination :
 
 ```bash
@@ -235,13 +239,18 @@ procreepy -r input/ output/
 Ce qui se passe pendant l'exécution :
 
 - La progression est signalée fichier par fichier, une ligne chacun.
-- Un fichier dont le timelapse n'a jamais été enregistré est **ignoré avec un
-  avertissement**. Rien n'est écrit pour lui et l'exécution continue.
+- Un fichier dont le timelapse n'a jamais été enregistré produit tout de même son
+  projet allégé (et son PSD avec `--psd`) — seule la vidéo est ignorée, avec une
+  mention, et l'exécution continue.
 - Un fichier endommagé est signalé comme erreur, l'exécution continue avec les
   autres, et la commande se termine avec le code de sortie `1` pour que les
   scripts le remarquent.
 - Relancer la même commande ne refait pas le travail terminé : les œuvres dont
   les résultats sont déjà là sont ignorées. Ajoutez `-f` pour les régénérer.
+- Après une exécution sans échec, les projets allégés sont empaquetés dans
+  `procreate.zip` et le dossier `procreate/` est supprimé. Une exécution avec le
+  moindre échec conserve le dossier non empaqueté, pour que vous puissiez
+  l'examiner et reprendre. `--no-zip` conserve toujours le dossier.
 
 ## Vérifier un fichier avant conversion
 
@@ -294,12 +303,19 @@ commande s'arrête sur `--psd needs a directory INPUT; it writes into
 OUTPUT/psd/`.
 
 Le PSD est un export, pas une copie parfaite. Il conserve l'arborescence des
-calques et leurs noms, la visibilité, l'opacité, les modes de fusion et l'image
-elle-même ; il ne conserve **pas** les masques de calque, les relations de
-détourage ni le texte modifiable. Lisez
+calques, la structure et l'ordre des groupes, leurs noms, la visibilité,
+l'opacité, les modes de fusion et l'image elle-même ; il ne conserve **pas** les
+masques de calque, les relations de détourage ni le texte modifiable. Lisez
 [ce que le PSD conserve et ce qu'il perd](usage.md#export-a-psd) avant de
 l'utiliser pour un travail final. Gardez le fichier `.procreate` comme copie de
 référence.
+
+Le PSD intègre aussi une petite image d'aperçu, si bien que les applications qui
+le lisent (Photoshop, Affinity, GIMP) affichent une vignette. Cela ne suffit
+**pas** à faire dessiner une vignette par l'Explorateur Windows : celui-ci
+réclame un gestionnaire de vignettes enregistré pour `.psd`, que Windows ne
+fournit pas (Photoshop ou un pack comme SageThumbs en fournit un), et il n'en
+existe aucun pour `.procreate`.
 
 ## Ce qui arrive à vos fichiers
 
@@ -312,7 +328,12 @@ référence.
 - **Les exécutions sur dossier publient par œuvre, en lot.** La vidéo, le projet
   allégé et le PSD d'une œuvre apparaissent ensemble ou pas du tout : vous
   n'obtenez jamais une vidéo sans son projet.
-- **Relancer est sûr.** Les œuvres terminées sont ignorées. Un lot resté
+- **Les dates sont reportées.** Chaque sortie — vidéo, projet allégé et PSD —
+  reçoit la date de modification du `.procreate` dont elle provient (et, sous
+  Windows, aussi la date de création), si bien qu'un projet réimporté dans
+  Procreate garde sa place dans la galerie.
+- **Relancer est sûr.** Les œuvres terminées sont ignorées, que les projets soient
+  encore un dossier ou déjà empaquetés dans `procreate.zip`. Un lot resté
   incomplet après une interruption est régénéré en entier. `-f` régénère tout.
 - **Convertir un fichier remplace la destination** si elle existe, après que la
   nouvelle vidéo a été écrite en entier.
@@ -345,7 +366,8 @@ procreepy [options] INPUT [OUTPUT]
 `INPUT` est un fichier `.procreate`, un dossier qui en contient, ou `-` pour
 l'entrée standard. `OUTPUT` est un nom de fichier, un dossier, ou `-` pour la
 sortie standard. Pour un fichier seul, omettre `OUTPUT` écrit la vidéo sur la
-sortie standard ; pour un dossier, la valeur par défaut est `output/`.
+sortie standard ; pour un dossier, la valeur par défaut est `<INPUT>_procreepy/`
+dans le répertoire courant.
 
 | Option | Rôle | S'applique à |
 |---|---|---|
@@ -356,6 +378,7 @@ sortie standard ; pour un dossier, la valeur par défaut est `output/`.
 | `-r`, `--recursive` | traiter aussi les sous-dossiers | entrée dossier uniquement |
 | `-f`, `--force` | écraser les résultats déjà présents | entrée dossier uniquement |
 | `--psd` | exporter en plus un PSD en calques par œuvre | entrée dossier uniquement |
+| `--no-zip` | laisser les projets en dossier `procreate/` au lieu d'empaqueter `procreate.zip` | entrée dossier uniquement |
 | `--strict` | traiter les trous dans la numérotation des segments comme des erreurs, non des avertissements | fichier ou dossier |
 | `--tmpdir DIR` | où placer les fichiers temporaires | toujours |
 | `-q`, `--quiet` | n'afficher que les avertissements et les erreurs | toujours |

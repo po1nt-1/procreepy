@@ -30,6 +30,9 @@ type ItemResult struct {
 	RemovedBytes    int64 // compressed size of those segments
 	Layers          int   // PSD layers written
 	PSDWritten      bool
+	// NoTimelapse records that the archive held no timelapse, so no video was
+	// written. The project and the PSD still were.
+	NoTimelapse bool
 }
 
 // ConvertItem produces every requested artifact for one .procreate file.
@@ -51,6 +54,12 @@ func ConvertItem(ctx context.Context, log *slog.Logger, src string, tg Targets,
 		return res, &procreate.InputError{Msg: "cannot access input " + src + ": " + strerror(err)}
 	}
 	srcModTime := st.ModTime()
+	// Windows records a creation time and Explorer sorts by it; where it cannot
+	// be read, the modification time is the closest honest stand-in.
+	srcCreateTime := createTimeOf(st)
+	if srcCreateTime.IsZero() {
+		srcCreateTime = srcModTime
+	}
 
 	arch, err := procreate.Open(src, src)
 	if err != nil {
@@ -58,38 +67,52 @@ func ConvertItem(ctx context.Context, log *slog.Logger, src string, tg Targets,
 	}
 	defer arch.Close()
 
+	// An artwork drawn with timelapse recording off is not a failure here: the
+	// project and the PSD are still worth producing, and refusing the whole
+	// input would write nothing at all for it. Only the video is skipped. The
+	// single-file path (Convert) still treats a missing timelapse as an error,
+	// because there the video is the only thing asked for.
 	segs, err := arch.Segments(procreate.Options{Strict: cfg.Strict, Warn: warnFn(log, ctx)})
 	if err != nil {
-		return res, err
-	}
-	res.Segments = len(segs)
-
-	movies, err := parseSegments(ctx, arch, segs)
-	if err != nil {
-		return res, err
-	}
-	if err := checkCompatibility(segs, movies); err != nil {
-		return res, err
-	}
-	mg, err := mp4.Merge(movies)
-	if err != nil {
-		if errors.Is(err, mp4.ErrIncompatible) {
-			return res, &IncompatibleError{Msg: err.Error()}
+		if !errors.Is(err, procreate.ErrNoSegments) {
+			return res, err
 		}
-		return res, err
+		res.NoTimelapse = true
 	}
-	res.DurationSeconds = mg.DurationSeconds()
+
+	var mg *mp4.Merged
+	wantVideo := tg.Timelapse != "" && !res.NoTimelapse
+	if wantVideo {
+		res.Segments = len(segs)
+		movies, err := parseSegments(ctx, arch, segs)
+		if err != nil {
+			return res, err
+		}
+		if err := checkCompatibility(segs, movies); err != nil {
+			return res, err
+		}
+		mg, err = mp4.Merge(movies)
+		if err != nil {
+			if errors.Is(err, mp4.ErrIncompatible) {
+				return res, &IncompatibleError{Msg: err.Error()}
+			}
+			return res, err
+		}
+		res.DurationSeconds = mg.DurationSeconds()
+	}
 
 	var pending []*staged
 	defer func() { discardAll(pending) }()
 
-	video, err := stage(tg.Timelapse)
-	if err != nil {
-		return res, err
-	}
-	pending = append(pending, video)
-	if _, err := emit(ctx, arch, segs, mg, video.f); err != nil {
-		return res, classifyWrite(ctx, err)
+	if wantVideo {
+		video, err := stage(tg.Timelapse)
+		if err != nil {
+			return res, err
+		}
+		pending = append(pending, video)
+		if _, err := emit(ctx, arch, segs, mg, video.f); err != nil {
+			return res, classifyWrite(ctx, err)
+		}
 	}
 
 	project, err := stage(tg.Project)
@@ -104,7 +127,6 @@ func ConvertItem(ctx context.Context, log *slog.Logger, src string, tg Targets,
 		}
 		return res, &WriteError{Msg: "cannot write " + tg.Project + ": " + strerror(err)}
 	}
-	project.setModTime(srcModTime)
 	res.Kept, res.Removed, res.RemovedBytes = slim.Kept, slim.Removed, slim.RemovedBytes
 
 	if tg.PSD != "" {
@@ -127,7 +149,12 @@ func ConvertItem(ctx context.Context, log *slog.Logger, src string, tg Targets,
 		res.Layers, res.PSDWritten = n, true
 	}
 
+	// Every artifact stands for the same artwork, so every one of them carries
+	// the source's dates: the project so that re-importing it keeps the gallery
+	// order, and the video and the PSD so a folder of results sorts the way the
+	// originals do instead of collapsing onto the moment of conversion.
 	for _, s := range pending {
+		s.setTimes(srcCreateTime, srcModTime)
 		if err := s.publish(); err != nil {
 			return res, err
 		}

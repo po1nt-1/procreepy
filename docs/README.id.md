@@ -40,24 +40,28 @@ Satu berkas masuk, satu video keluar:
 my-art.procreate  →  procreepy  →  my-art.mp4
 ```
 
-Satu folder masuk, dua folder keluar:
+Satu folder masuk; keluar sebuah pohon video dan satu arsip proyek:
 
 ```text
-input/                          output/
-├── Cat.procreate         →     ├── timelapses/
+input/                          input_procreepy/
+├── Cat.procreate         →     ├── mp4/
 ├── Landscape.procreate   →     │   ├── Cat.mp4
 └── Sketch.procreate      →     │   ├── Landscape.mp4
                                 │   └── Sketch.mp4
-                                └── projects/
-                                    ├── Cat.procreepy.procreate
-                                    ├── Landscape.procreepy.procreate
-                                    └── Sketch.procreepy.procreate
+                                └── procreate.zip   (proyek ramping)
 ```
 
-- `timelapses/` berisi videonya.
-- `projects/` berisi salinan setiap karya **dengan timelapse-nya dibuang**: jauh
-  lebih kecil, dan bisa Anda impor kembali ke Procreate. Semua isi proyek yang
-  lain dipertahankan bit demi bit.
+- `mp4/` berisi videonya.
+- `procreate.zip` berisi salinan setiap karya **dengan timelapse-nya dibuang**:
+  jauh lebih kecil, dan bisa Anda impor kembali ke Procreate. Semua isi proyek
+  yang lain dipertahankan bit demi bit. Ini zip biasa berisi folder `procreate/`
+  di dalamnya, siap dipindahkan ke iPad; gunakan `--no-zip` untuk membiarkan
+  folder `procreate/` itu di disk alih-alih arsipnya.
+- Folder keluaran dinamai mengikuti folder masukan (`input/` → `input_procreepy/`)
+  dan dibuat di direktori tempat Anda menjalankan perintah. Beri jalur kedua untuk
+  memilihnya sendiri.
+- Setiap keluaran mempertahankan tanggal berkas asalnya, sehingga mengimpor ulang
+  proyek ke Procreate tidak mengacak galeri Anda.
 - `input/` tetap persis seperti sebelumnya.
 
 ## Pemasangan
@@ -212,8 +216,9 @@ Hasil: `videos/artwork.mp4`. Foldernya harus sudah ada.
 procreepy input/
 ```
 
-Membaca setiap `.procreate` di `input/` dan menulis ke `output/`, seperti pada
-[Apa yang Anda dapat](#apa-yang-anda-dapat). Untuk memilih tujuan sendiri:
+Membaca setiap `.procreate` di `input/` dan menulis ke `input_procreepy/`,
+seperti pada [Apa yang Anda dapat](#apa-yang-anda-dapat). Untuk memilih tujuan
+sendiri:
 
 ```bash
 procreepy input/ ~/Videos/timelapses
@@ -228,13 +233,18 @@ procreepy -r input/ output/
 Apa yang terjadi selama berjalan:
 
 - Kemajuan dilaporkan per berkas, satu baris masing-masing.
-- Berkas yang timelapse-nya tidak pernah direkam **dilewati dengan peringatan**.
-  Tidak ada yang ditulis untuknya dan proses berlanjut.
+- Berkas yang timelapse-nya tidak pernah direkam tetap menghasilkan proyek
+  rampingnya (dan PSD-nya dengan `--psd`) — hanya videonya yang dilewati, dengan
+  catatan, dan proses berlanjut.
 - Berkas yang rusak dilaporkan sebagai galat, proses tetap lanjut ke sisanya, dan
   perintah berakhir dengan kode keluar `1` agar skrip bisa menyadarinya.
 - Menjalankan perintah yang sama dua kali tidak mengulang pekerjaan yang sudah
   selesai: karya yang hasilnya sudah ada akan dilewati. Tambahkan `-f` untuk
   membangunnya ulang.
+- Setelah proses tanpa kegagalan, proyek-proyek ramping dikemas ke dalam
+  `procreate.zip` dan folder `procreate/` dihapus. Proses dengan kegagalan apa
+  pun membiarkan foldernya tetap belum dikemas, agar bisa Anda periksa dan
+  lanjutkan. Gunakan `--no-zip` untuk selalu menyimpan foldernya.
 
 ## Memeriksa berkas sebelum konversi
 
@@ -285,12 +295,20 @@ sejenisnya.
 perintah berhenti dengan `--psd needs a directory INPUT; it writes into
 OUTPUT/psd/`.
 
-PSD adalah hasil ekspor, bukan salinan sempurna. Ia mempertahankan pohon lapisan
-dan namanya, visibilitas, opasitas, mode blend, dan gambarnya sendiri; ia
-**tidak** mempertahankan mask lapisan, hubungan clipping, atau teks yang bisa
-diedit. Baca [apa yang disimpan dan apa yang hilang pada PSD](usage.md#export-a-psd)
-sebelum memakainya untuk pekerjaan akhir. Simpan berkas `.procreate` sebagai
-salinan induk.
+PSD adalah hasil ekspor, bukan salinan sempurna. Ia mempertahankan pohon lapisan,
+struktur dan urutan grup, nama, visibilitas, opasitas, mode blend, dan gambarnya
+sendiri; ia **tidak** mempertahankan mask lapisan, hubungan clipping, atau teks
+yang bisa diedit. Baca
+[apa yang disimpan dan apa yang hilang pada PSD](usage.md#export-a-psd) sebelum
+memakainya untuk pekerjaan akhir. Simpan berkas `.procreate` sebagai salinan
+induk.
+
+PSD juga menyematkan gambar pratinjau kecil, sehingga aplikasi yang membacanya
+(Photoshop, Affinity, GIMP) menampilkan thumbnail. Ini **tidak** dengan
+sendirinya membuat Windows Explorer menggambar thumbnail: Explorer memerlukan
+penangan thumbnail terdaftar untuk `.psd`, yang tidak disertakan Windows
+(Photoshop atau paket seperti SageThumbs menyediakannya), dan untuk `.procreate`
+tidak ada sama sekali.
 
 ## Apa yang terjadi pada berkas Anda
 
@@ -303,7 +321,12 @@ salinan induk.
 - **Proses folder menerbitkan per karya, sebagai satu set.** Video, proyek
   ringkas, dan PSD satu karya muncul bersama atau tidak muncul sama sekali —
   Anda tidak akan mendapat video tanpa proyeknya.
-- **Menjalankan ulang itu aman.** Karya yang sudah selesai dilewati. Satu set yang
+- **Tanggal ikut dibawa.** Setiap keluaran — video, proyek ramping, dan PSD —
+  diberi tanggal modifikasi berkas `.procreate` asalnya (dan, di Windows, tanggal
+  pembuatannya juga), sehingga proyek yang diimpor ulang ke Procreate tetap pada
+  tempatnya di galeri.
+- **Menjalankan ulang itu aman.** Karya yang sudah selesai dilewati, baik proyek
+  masih berupa folder maupun sudah dikemas ke `procreate.zip`. Satu set yang
   tertinggal tidak lengkap karena proses terputus akan dibangun ulang seluruhnya.
   `-f` membangun ulang semuanya.
 - **Mengonversi satu berkas mengganti tujuannya** bila sudah ada, setelah video
@@ -336,7 +359,8 @@ procreepy [options] INPUT [OUTPUT]
 `INPUT` adalah berkas `.procreate`, folder berisi berkas-berkas itu, atau `-`
 untuk masukan standar. `OUTPUT` adalah nama berkas, folder, atau `-` untuk
 keluaran standar. Untuk satu berkas, `OUTPUT` yang dikosongkan berarti video
-ditulis ke keluaran standar; untuk folder, bawaannya `output/`.
+ditulis ke keluaran standar; untuk folder, bawaannya `<INPUT>_procreepy/` di
+direktori saat ini.
 
 | Opsi | Fungsinya | Berlaku untuk |
 |---|---|---|
@@ -347,6 +371,7 @@ ditulis ke keluaran standar; untuk folder, bawaannya `output/`.
 | `-r`, `--recursive` | proses subfolder juga | hanya masukan folder |
 | `-f`, `--force` | timpa hasil yang sudah ada | hanya masukan folder |
 | `--psd` | ekspor juga PSD berlapis per karya | hanya masukan folder |
+| `--no-zip` | biarkan proyek sebagai folder `procreate/` alih-alih mengemas `procreate.zip` | hanya masukan folder |
 | `--strict` | anggap nomor segmen yang bolong sebagai galat, bukan peringatan | berkas atau folder |
 | `--tmpdir DIR` | tempat menaruh berkas sementara | selalu |
 | `-q`, `--quiet` | cetak hanya peringatan dan galat | selalu |

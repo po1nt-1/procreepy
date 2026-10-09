@@ -33,9 +33,12 @@ timelapse path never reads any of it. Only `--psd` does.
 2. **Archive validation.** The ZIP is opened read-only and the
    `video/segments/segment-N.mp4` members are located.
 3. **Numeric sort.** Segments are ordered by their number, not lexically, so
-   `segment-9` precedes `segment-10`. A gap in the numbering is a warning (an
-   error under `--strict`); a segment name without a number is ignored with a
-   warning.
+   `segment-9` precedes `segment-10`. An interior gap in the numbering is a
+   warning (an error under `--strict`); a segment name without a number is
+   ignored with a warning. The sequence need not start at 1 — Procreate prunes
+   the oldest segments as a recording grows, so a timelapse beginning at
+   `segment-5` is complete, and only holes between the first and last present
+   number count as gaps.
 4. **Per-segment parsing.** Each segment is parsed directly out of the archive,
    without extracting it: MP4 box structure, track sizes, codec parameters. The
    ZIP CRC is checked as the data streams past. The first corruption stops the
@@ -88,7 +91,7 @@ long timelapses; it is not exercised by the test corpus, which stays small.
 
 ## The slim project
 
-`projects/NAME.procreepy.procreate` is the input archive with the
+`procreate/NAME.procreepy.procreate` is the input archive with the
 `video/segments/segment-N.mp4` members removed and nothing else changed. Members
 are copied at the raw-ZIP level: the stored bytes, compression method, order and
 per-entry timestamps are preserved rather than recompressed, so the result is
@@ -96,13 +99,49 @@ bit-identical to the source apart from the dropped members. The file's
 modification time is set to the source's, so re-importing it into Procreate does
 not reshuffle the gallery by date.
 
+## Dates on the outputs
+
+Every artifact a run writes — the MP4, the slim project and the PSD — is stamped
+with the modification time of its source, immediately before the atomic rename
+into place. On Windows the creation time is set as well, through
+`syscall.SetFileTime`, which is the platform where the gallery's "Date created"
+sort matters. Linux has no API for a birth time, so only the modification time is
+set there; macOS would need `setattrlist(2)`, which is not in the standard
+library, so creation time is not set on macOS either. The per-OS shims live in
+`internal/video/times_{windows,linux,darwin}.go`.
+
+## Projects packed for transfer
+
+A directory run builds the slim projects under `OUTPUT/procreate/` as it goes,
+for per-artwork atomicity and resume. Then, only if the whole run finished
+without a failure, it packs that folder into `OUTPUT/procreate.zip` and removes
+the folder. The archive has a single top-level `procreate/` entry, so it unpacks
+to the same layout; members are stored (`zip.Store`), because a `.procreate` is
+already a compressed zip, and each entry's `Modified` is its source's date. A run
+with any failure skips packing and keeps the folder — the material for diagnosis
+and resume. When the folder is already gone, the resume check reads "done" from
+the archive's entry names instead; pre-existing entries are merged back with
+`CreateRaw`/`OpenRaw` (the same raw-ZIP technique `WriteSlimmed` uses), and a
+project present on disk wins over a same-named entry, which is what makes `-f`
+take effect. `--no-zip` skips the whole packing step.
+
 ## PSD export
 
 `--psd` is the only path that reads the artwork. It parses `Document.archive`
 (the NSKeyedArchiver plist describing the layer tree), decompresses the per-layer
 tiles, and assembles a Photoshop document: layer records with names, bounds,
 opacity, blend modes and flags, 8-bit RGBA channel data compressed with PackBits,
-the DPI and ICC profile, and a merged composite.
+the DPI and ICC profile, a merged composite, and an embedded preview (image
+resource 1036, a JPEG whose long side is 256 px, built from that composite onto a
+white background since JPEG has no alpha). The composite is decoded once and
+cached, because the preview is written before the merged-image section and
+decoding every tile twice is the most expensive part of an export.
+
+Layer order matters and was a subtle bug once: Procreate archives the layer array
+**top-most first**, while the PSD layer-record run reads bottom-most first and a
+group is encoded as `divider → children → folder`. The single reversal happens in
+`internal/silica` where the archive's convention is known, so both the PSD writer
+and the fallback compositor see a bottom-up tree and preserve groups and order.
 
 The composite is taken verbatim from Procreate's own flattened render when the
 archive has one. When it is missing or damaged, the visible layers are
@@ -140,7 +179,9 @@ Covered cases include: the ordinary file, a missing `video/segments`, a single
 segment, out-of-order numbering (`segment-9` before `segment-10`), stdin and
 stdout, spaces and non-ASCII in names, corrupt and truncated ZIPs, corrupt and
 truncated MP4s, CRC damage, write failures against `/dev/full`, incompatible
-segments, and the whole folder workflow.
+segments, the project written for a timelapse-less artwork, layer order against a
+real corpus (skipped without one), the zip packing and resume path, and the whole
+folder workflow.
 
 See [development.md](development.md) for how to run all of it.
 

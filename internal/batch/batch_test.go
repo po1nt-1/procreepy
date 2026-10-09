@@ -128,7 +128,7 @@ func TestConvertDirectory(t *testing.T) {
 	var logBuf bytes.Buffer
 	log := bufLogger(&logBuf)
 
-	code, err := ConvertDirectory(context.Background(), log, root, outDir, video.Config{}, false, false)
+	code, err := ConvertDirectory(context.Background(), log, root, outDir, video.Config{}, false, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func TestConvertDirectory(t *testing.T) {
 	logged := logBuf.String()
 	for _, want := range []string{
 		`level=INFO msg="batch conversion started" files=3`,
-		`level=WARN msg="no timelapse video inside, skipped"`,
+		`level=INFO msg="no timelapse inside, wrote the project without a video"`,
 		`level=ERROR msg="file conversion failed"`,
 		"input is not a valid ZIP archive",
 		`level=INFO msg="batch completed" converted=1 existed=0 no_video=1 failed=1`,
@@ -179,37 +179,44 @@ func TestConvertDirectory(t *testing.T) {
 	if string(head[ftypSz+4:ftypSz+8]) != "moov" {
 		t.Fatalf("output is not moov-first: % x", head[:])
 	}
-	// A file with no timelapse and a broken file both produce nothing at all,
-	// in either tree.
-	for _, stem := range []string{"empty", "bad"} {
-		for _, p := range []string{
-			filepath.Join(outDir, TimelapseDir, stem+".mp4"),
-			filepath.Join(outDir, ProjectDir, stem+ProjectSuffix),
-		} {
-			if _, err := os.Stat(p); err == nil {
-				t.Errorf("%s should not exist", p)
-			}
+	// A broken file produces nothing at all, in either tree.
+	for _, p := range []string{
+		filepath.Join(outDir, TimelapseDir, "bad.mp4"),
+		filepath.Join(outDir, ProjectDir, "bad"+ProjectSuffix),
+	} {
+		if _, err := os.Stat(p); err == nil {
+			t.Errorf("%s should not exist", p)
 		}
+	}
+	// A file with no timelapse has no video, but its project is still written:
+	// that is the only artifact it can contribute.
+	if _, err := os.Stat(filepath.Join(outDir, ProjectDir, "empty"+ProjectSuffix)); err != nil {
+		t.Errorf("project for the timelapse-less input missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, TimelapseDir, "empty.mp4")); err == nil {
+		t.Error("empty.mp4 should not exist: there was no timelapse to write")
 	}
 	// No scratch files may survive a run that had both successes and failures.
 	assertNoPartials(t, outDir)
 
 	// Second run: the whole output set already exists -> skipped without --force.
 	logBuf.Reset()
-	code, err = ConvertDirectory(context.Background(), log, root, outDir, video.Config{}, false, false)
+	code, err = ConvertDirectory(context.Background(), log, root, outDir, video.Config{}, false, false, false)
 	if err != nil || code != 1 {
 		t.Fatalf("rerun: code=%d err=%v\n%s", code, err, logBuf.String())
 	}
 	if !strings.Contains(logBuf.String(), "already exist (use --force to overwrite)") {
 		t.Errorf("rerun log missing skip message:\n%s", logBuf.String())
 	}
-	if !strings.Contains(logBuf.String(), `existed=1`) {
+	// Both the converted artwork and the timelapse-less one count as done: the
+	// latter's set is complete without a video, confirmed against the archive.
+	if !strings.Contains(logBuf.String(), `existed=2`) {
 		t.Errorf("rerun log missing summary:\n%s", logBuf.String())
 	}
 
 	// Third run with --force: ok.mp4 is rewritten.
 	logBuf.Reset()
-	code, err = ConvertDirectory(context.Background(), log, root, outDir, video.Config{}, true, false)
+	code, err = ConvertDirectory(context.Background(), log, root, outDir, video.Config{}, true, false, false)
 	if err != nil || code != 1 {
 		t.Fatalf("force run: code=%d err=%v\n%s", code, err, logBuf.String())
 	}
@@ -223,7 +230,7 @@ func TestConvertDirectoryErrors(t *testing.T) {
 	writeTree(t, root, map[string][]byte{"ok.procreate": goodArchBytes(t)})
 
 	if _, err := ConvertDirectory(context.Background(), slog.New(slog.DiscardHandler), root, "-",
-		video.Config{}, false, false); err == nil {
+		video.Config{}, false, false, false); err == nil {
 		t.Fatal("stdout output dir: want error")
 	} else {
 		var ue *video.UsageError
@@ -240,7 +247,7 @@ func TestConvertDirectoryErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := ConvertDirectory(context.Background(), slog.New(slog.DiscardHandler), root, fileAsDir,
-		video.Config{}, false, false); err == nil {
+		video.Config{}, false, false, false); err == nil {
 		t.Fatal("output path is a file: want error")
 	} else if !strings.Contains(err.Error(), "output path exists and is not a directory") {
 		t.Fatalf("err = %v", err)
@@ -248,7 +255,7 @@ func TestConvertDirectoryErrors(t *testing.T) {
 
 	empty := t.TempDir()
 	if _, err := ConvertDirectory(context.Background(), slog.New(slog.DiscardHandler), empty, "",
-		video.Config{}, false, false); err == nil {
+		video.Config{}, false, false, false); err == nil {
 		t.Fatal("empty dir: want error")
 	} else {
 		var ie *procreate.InputError
@@ -328,7 +335,7 @@ func TestConvertDirectoryProducesImportableProject(t *testing.T) {
 	log := bufLogger(&logBuf)
 
 	code, err := ConvertDirectory(context.Background(), log, root, outDir,
-		video.Config{}, false, false)
+		video.Config{}, false, false, false)
 	if err != nil || code != 0 {
 		t.Fatalf("code=%d err=%v\n%s", code, err, logBuf.String())
 	}

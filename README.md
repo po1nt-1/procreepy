@@ -37,24 +37,28 @@ One file in, one video out:
 my-art.procreate  →  procreepy  →  my-art.mp4
 ```
 
-A folder in, two folders out:
+A folder in, a video tree and a project archive out:
 
 ```text
-input/                          output/
-├── Cat.procreate         →     ├── timelapses/
+input/                          input_procreepy/
+├── Cat.procreate         →     ├── mp4/
 ├── Landscape.procreate   →     │   ├── Cat.mp4
 └── Sketch.procreate      →     │   ├── Landscape.mp4
                                 │   └── Sketch.mp4
-                                └── projects/
-                                    ├── Cat.procreepy.procreate
-                                    ├── Landscape.procreepy.procreate
-                                    └── Sketch.procreepy.procreate
+                                └── procreate.zip   (the slim projects)
 ```
 
-- `timelapses/` holds the videos.
-- `projects/` holds a copy of each artwork **with the timelapse removed** — much
-  smaller, and you can import it back into Procreate. Everything else in the
-  project is kept byte for byte.
+- `mp4/` holds the videos.
+- `procreate.zip` holds a copy of each artwork **with the timelapse removed** —
+  much smaller, and you can import it back into Procreate. Everything else in the
+  project is kept byte for byte. It is a plain zip with a `procreate/` folder
+  inside, ready to drop onto an iPad; pass `--no-zip` to get that `procreate/`
+  folder on disk instead of the archive.
+- The output folder is named after your input (`input/` → `input_procreepy/`) and
+  created in the directory you run the command from. Give a second path to choose
+  it yourself.
+- Every output keeps the date of the file it came from, so re-importing a project
+  into Procreate does not reshuffle your gallery.
 - `input/` is left exactly as it was.
 
 ## Install
@@ -212,8 +216,9 @@ Result: `videos/artwork.mp4`. The folder must already exist.
 procreepy input/
 ```
 
-This reads every `.procreate` file in `input/` and writes into `output/`, as
-shown in [What you get](#what-you-get). To choose the destination yourself:
+This reads every `.procreate` file in `input/` and writes into
+`input_procreepy/`, as shown in [What you get](#what-you-get). To choose the
+destination yourself:
 
 ```bash
 procreepy input/ ~/Videos/timelapses
@@ -228,12 +233,17 @@ procreepy -r input/ output/
 What happens as it runs:
 
 - Progress is reported per file on the screen, one line each.
-- A file whose timelapse was never recorded is **skipped with a warning**.
-  Nothing is written for it, and the run continues.
+- A file whose timelapse was never recorded still produces its slim project (and
+  its PSD under `--psd`) — only the video is skipped, with a note, and the run
+  continues.
 - A damaged file is reported as an error, the run still continues with the rest,
   and the command finishes with exit code `1` so scripts can notice.
 - Running the same command twice does not redo finished work: artworks whose
   outputs are already there are skipped. Add `-f` to rebuild them anyway.
+- After a run with no failures, the slim projects are packed into
+  `procreate.zip` and the loose `procreate/` folder is removed. A run that had
+  any failure keeps the folder unpacked, so you can inspect it and resume. Pass
+  `--no-zip` to always keep the folder.
 
 ## Check a file first
 
@@ -282,11 +292,18 @@ similar.
 `--psd` works with **folder input only**. Given a single file it stops with
 `--psd needs a directory INPUT; it writes into OUTPUT/psd/`.
 
-The PSD is an export, not a perfect copy. It keeps the layer tree and names,
-visibility, opacity, blend modes and the image itself; it does **not** keep
-layer masks, clipping relationships or editable text. Read
+The PSD is an export, not a perfect copy. It keeps the layer tree, group
+structure and order, names, visibility, opacity, blend modes and the image
+itself; it does **not** keep layer masks, clipping relationships or editable
+text. Read
 [what the PSD preserves and what it loses](docs/usage.md#export-a-psd) before
 using it for finished work. Keep the `.procreate` file as your master copy.
+
+The PSD also embeds a small preview image, so apps that read it (Photoshop,
+Affinity, GIMP) show a thumbnail. Note that this does **not** by itself make
+Windows Explorer draw a thumbnail: Explorer needs a registered thumbnail handler
+for `.psd`, which Windows does not ship (Photoshop or a pack such as SageThumbs
+provides one), and none exists for `.procreate` at all.
 
 ## What happens to your files
 
@@ -298,7 +315,12 @@ using it for finished work. Keep the `.procreate` file as your master copy.
 - **Folder runs publish per artwork, as a set.** The video, the slim project and
   the PSD for one artwork appear together or not at all — you never get a video
   without its project.
-- **Re-running is safe.** Finished artworks are skipped. A set left incomplete by
+- **Dates are carried over.** Every output — video, slim project and PSD — is
+  stamped with the modification date of the `.procreate` it came from (and, on
+  Windows, the creation date too), so a project re-imported into Procreate keeps
+  its place in your gallery.
+- **Re-running is safe.** Finished artworks are skipped, whether the projects are
+  still a folder or already packed into `procreate.zip`. A set left incomplete by
   an earlier interrupted run is rebuilt as a whole. `-f` rebuilds everything.
 - **Converting one file replaces the destination** if it exists, after the new
   video is fully written.
@@ -330,7 +352,7 @@ procreepy [options] INPUT [OUTPUT]
 `INPUT` is a `.procreate` file, a folder of them, or `-` for standard input.
 `OUTPUT` is a file name, a folder, or `-` for standard output. For a single
 file, leaving `OUTPUT` out writes the video to standard output; for a folder it
-defaults to `output/`.
+defaults to `<INPUT>_procreepy/` in the current directory.
 
 | Option | What it does | Applies to |
 |---|---|---|
@@ -341,6 +363,7 @@ defaults to `output/`.
 | `-r`, `--recursive` | also process sub-folders | folder input |
 | `-f`, `--force` | overwrite outputs that already exist | folder input |
 | `--psd` | also export a layered PSD per artwork | folder input |
+| `--no-zip` | leave the projects as a `procreate/` folder instead of `procreate.zip` | folder input |
 | `--strict` | treat gaps in segment numbering as errors, not warnings | file or folder |
 | `--tmpdir DIR` | where to put temporary files | always |
 | `-q`, `--quiet` | print only warnings and errors | always |

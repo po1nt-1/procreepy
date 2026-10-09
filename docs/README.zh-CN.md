@@ -34,23 +34,24 @@ procreepy **无法**：
 my-art.procreate  →  procreepy  →  my-art.mp4
 ```
 
-一个文件夹进，两个文件夹出：
+一个文件夹进，输出一棵视频树和一个项目归档：
 
 ```text
-input/                          output/
-├── Cat.procreate         →     ├── timelapses/
+input/                          input_procreepy/
+├── Cat.procreate         →     ├── mp4/
 ├── Landscape.procreate   →     │   ├── Cat.mp4
 └── Sketch.procreate      →     │   ├── Landscape.mp4
                                 │   └── Sketch.mp4
-                                └── projects/
-                                    ├── Cat.procreepy.procreate
-                                    ├── Landscape.procreepy.procreate
-                                    └── Sketch.procreepy.procreate
+                                └── procreate.zip   (精简后的项目)
 ```
 
-- `timelapses/` 里是视频。
-- `projects/` 里是每件作品**移除延时数据后**的副本：体积小得多，并且可以重新导入
-  Procreate。项目中其余内容逐字节保留。
+- `mp4/` 里是视频。
+- `procreate.zip` 里是每件作品**移除延时数据后**的副本：体积小得多，并且可以重新导入
+  Procreate。项目中其余内容逐字节保留。它是一个普通 zip，内部有一个 `procreate/`
+  文件夹，可直接传到 iPad；加 `--no-zip` 会在磁盘上保留该 `procreate/` 文件夹而不打包。
+- 输出文件夹按输入文件夹命名（`input/` → `input_procreepy/`），在你运行命令的目录下
+  创建。给出第二个路径即可自行指定。
+- 每个输出都保留其来源文件的日期，因此把项目重新导入 Procreate 不会打乱你的作品集排序。
 - `input/` 保持原样，分毫不动。
 
 ## 安装
@@ -195,7 +196,7 @@ procreepy artwork.procreate videos/
 procreepy input/
 ```
 
-读取 `input/` 中的每个 `.procreate`，写入 `output/`，结构如
+读取 `input/` 中的每个 `.procreate`，写入 `input_procreepy/`，结构如
 [你会得到什么](#你会得到什么)所示。要自己指定目标：
 
 ```bash
@@ -211,11 +212,15 @@ procreepy -r input/ output/
 运行过程中会发生什么：
 
 - 进度按文件逐行报告。
-- 从未录制延时的文件会**带警告跳过**。不会为它写任何东西，运行继续。
+- 从未录制延时的文件仍会生成它的精简项目（使用 `--psd` 时还有 PSD）——只是跳过
+  视频，并记一条提示，运行继续。
 - 损坏的文件会报为错误，运行仍会继续处理其余文件，命令最终以退出码 `1` 结束，
   便于脚本察觉。
 - 同一条命令跑第二次不会重做已完成的工作：结果已在的作品会被跳过。加上 `-f`
   可强制重建。
+- 一次没有失败的运行结束后，精简项目会被打包进 `procreate.zip`，`procreate/`
+  文件夹随之删除。若运行中出现任何失败，则保留未打包的文件夹，方便你检查并续跑。
+  加 `--no-zip` 则始终保留该文件夹。
 
 ## 转换前先检查文件
 
@@ -262,10 +267,15 @@ procreepy --psd input/ output/
 `--psd` **只支持文件夹作为输入**。若给单个文件，命令会停下并提示
 `--psd needs a directory INPUT; it writes into OUTPUT/psd/`。
 
-PSD 是一次导出，而不是完美副本。它保留图层树与图层名、可见性、不透明度、混合模式
-以及图像本身；**不**保留图层蒙版、剪贴关系和可编辑文字。在把它用于正式产出之前，
-请先阅读 [PSD 保留了什么、丢失了什么](usage.md#export-a-psd)。请始终把
-`.procreate` 文件当作母版。
+PSD 是一次导出，而不是完美副本。它保留图层树、分组结构与顺序、图层名、可见性、
+不透明度、混合模式以及图像本身；**不**保留图层蒙版、剪贴关系和可编辑文字。在把它
+用于正式产出之前，请先阅读 [PSD 保留了什么、丢失了什么](usage.md#export-a-psd)。
+请始终把 `.procreate` 文件当作母版。
+
+PSD 还内嵌了一张小预览图，因此能读取它的应用（Photoshop、Affinity、GIMP）会显示
+缩略图。但这本身并**不**会让 Windows 资源管理器绘制缩略图：资源管理器需要为 `.psd`
+注册的缩略图处理程序，而 Windows 并不自带（由 Photoshop 或 SageThumbs 之类的扩展
+提供），`.procreate` 则根本没有。
 
 ## 你的文件会怎样
 
@@ -275,8 +285,11 @@ PSD 是一次导出，而不是完美副本。它保留图层树与图层名、�
   被中断或失败的运行绝不会留下损坏的视频，也不会破坏原本已存在的文件。
 - **文件夹模式按作品成套发布。** 一件作品的视频、精简项目和 PSD 要么一起出现，
   要么都不出现——你绝不会得到一个没有对应项目的视频。
-- **重复运行是安全的。** 已完成的作品会被跳过。因中断而残缺的一套会被整体重建。
-  `-f` 则重建全部。
+- **日期会被沿用。** 每个输出——视频、精简项目和 PSD——都会打上其来源 `.procreate`
+  的修改日期（在 Windows 上还包括创建日期），因此重新导入 Procreate 的项目会保持它
+  在作品集中的位置。
+- **重复运行是安全的。** 已完成的作品会被跳过——无论项目仍是文件夹，还是已经打包进
+  `procreate.zip`。因中断而残缺的一套会被整体重建。`-f` 则重建全部。
 - **转换单个文件会替换目标文件**（如果存在），且在新视频完整写入之后才替换。
 - **大文件需要临时空间。** 大型延时视频通过临时文件组装。空间不足时，用
   `--tmpdir` 指向更宽裕的磁盘。
@@ -305,7 +318,7 @@ procreepy [options] INPUT [OUTPUT]
 
 `INPUT` 是一个 `.procreate` 文件、一个装着它们的文件夹，或 `-` 表示标准输入。
 `OUTPUT` 是文件名、文件夹，或 `-` 表示标准输出。对单个文件，省略 `OUTPUT` 表示把
-视频写到标准输出；对文件夹，默认是 `output/`。
+视频写到标准输出；对文件夹，默认是当前目录下的 `<INPUT>_procreepy/`。
 
 | 选项 | 作用 | 适用于 |
 |---|---|---|
@@ -316,6 +329,7 @@ procreepy [options] INPUT [OUTPUT]
 | `-r`、`--recursive` | 同时处理子文件夹 | 仅文件夹输入 |
 | `-f`、`--force` | 覆盖已存在的结果 | 仅文件夹输入 |
 | `--psd` | 为每件作品额外导出分层 PSD | 仅文件夹输入 |
+| `--no-zip` | 把项目保留为 `procreate/` 文件夹，而不打包成 `procreate.zip` | 仅文件夹输入 |
 | `--strict` | 把片段编号的缺口视为错误而非警告 | 文件或文件夹 |
 | `--tmpdir DIR` | 临时文件放在哪里 | 始终 |
 | `-q`、`--quiet` | 只打印警告和错误 | 始终 |

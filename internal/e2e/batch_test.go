@@ -90,31 +90,31 @@ func sortedNames(m map[string][]byte) []string {
 func TestBatchBasic(t *testing.T) {
 	dir := t.TempDir()
 	stdInput(t, dir)
-	wantErr := batchStart(2, "input", "output/timelapses", "output/projects") +
-		batchConverted("input/a.procreate", "output/timelapses/a.mp4", "output/projects/a.procreepy.procreate", 3, stdSize()) +
-		batchConverted("input/b.procreate", "output/timelapses/b.mp4", "output/projects/b.procreepy.procreate", 3, stdSize()) +
+	wantErr := batchStart(2, "input", "input_procreepy/mp4", "input_procreepy/procreate") +
+		batchConverted("input/a.procreate", "input_procreepy/mp4/a.mp4", "input_procreepy/procreate/a.procreepy.procreate", 3, stdSize()) +
+		batchConverted("input/b.procreate", "input_procreepy/mp4/b.mp4", "input_procreepy/procreate/b.procreepy.procreate", 3, stdSize()) +
 		batchDone(2, 0, 0, 0)
-	check(t, run(t, dir, nil, "input"), 0, "", wantErr)
-	eqBytes(t, "a.mp4", readAll(t, filepath.Join(dir, "output", "timelapses", "a.mp4")),
+	check(t, run(t, dir, nil, "--no-zip", "input"), 0, "", wantErr)
+	eqBytes(t, "a.mp4", readAll(t, filepath.Join(dir, "input_procreepy", "mp4", "a.mp4")),
 		expectedMP4(t, segN(1), segN(2), segN(3)))
-	eqBytes(t, "b.mp4", readAll(t, filepath.Join(dir, "output", "timelapses", "b.mp4")),
+	eqBytes(t, "b.mp4", readAll(t, filepath.Join(dir, "input_procreepy", "mp4", "b.mp4")),
 		expectedMP4(t, segN(1), segN(2), segN(3)))
-	assertProjectContents(t, filepath.Join(dir, "output", "projects", "a.procreepy.procreate"), stdKeep())
-	assertProjectContents(t, filepath.Join(dir, "output", "projects", "b.procreepy.procreate"), stdKeep())
+	assertProjectContents(t, filepath.Join(dir, "input_procreepy", "procreate", "a.procreepy.procreate"), stdKeep())
+	assertProjectContents(t, filepath.Join(dir, "input_procreepy", "procreate", "b.procreepy.procreate"), stdKeep())
 }
 
 func TestBatchExplicitOut(t *testing.T) {
 	dir := t.TempDir()
 	stdInput(t, dir)
-	wantErr := batchStart(2, "input", "vids/timelapses", "vids/projects") +
-		batchConverted("input/a.procreate", "vids/timelapses/a.mp4", "vids/projects/a.procreepy.procreate", 3, stdSize()) +
-		batchConverted("input/b.procreate", "vids/timelapses/b.mp4", "vids/projects/b.procreepy.procreate", 3, stdSize()) +
+	wantErr := batchStart(2, "input", "vids/mp4", "vids/procreate") +
+		batchConverted("input/a.procreate", "vids/mp4/a.mp4", "vids/procreate/a.procreepy.procreate", 3, stdSize()) +
+		batchConverted("input/b.procreate", "vids/mp4/b.mp4", "vids/procreate/b.procreepy.procreate", 3, stdSize()) +
 		batchDone(2, 0, 0, 0)
-	check(t, run(t, dir, nil, "input", "vids"), 0, "", wantErr)
-	if _, err := os.Stat(filepath.Join(dir, "vids", "timelapses", "a.mp4")); err != nil {
+	check(t, run(t, dir, nil, "--no-zip", "input", "vids"), 0, "", wantErr)
+	if _, err := os.Stat(filepath.Join(dir, "vids", "mp4", "a.mp4")); err != nil {
 		t.Error(err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "vids", "projects", "a.procreepy.procreate")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, "vids", "procreate", "a.procreepy.procreate")); err != nil {
 		t.Error(err)
 	}
 }
@@ -124,26 +124,26 @@ func TestBatchExplicitOut(t *testing.T) {
 func TestBatchTrailingSlashOut(t *testing.T) {
 	dir := t.TempDir()
 	stdInput(t, dir)
-	wantErr := batchStart(2, "input", "vids/timelapses", "vids/projects") +
-		batchConverted("input/a.procreate", "vids/timelapses/a.mp4", "vids/projects/a.procreepy.procreate", 3, stdSize()) +
-		batchConverted("input/b.procreate", "vids/timelapses/b.mp4", "vids/projects/b.procreepy.procreate", 3, stdSize()) +
+	wantErr := batchStart(2, "input", "vids/mp4", "vids/procreate") +
+		batchConverted("input/a.procreate", "vids/mp4/a.mp4", "vids/procreate/a.procreepy.procreate", 3, stdSize()) +
+		batchConverted("input/b.procreate", "vids/mp4/b.mp4", "vids/procreate/b.procreepy.procreate", 3, stdSize()) +
 		batchDone(2, 0, 0, 0)
-	check(t, run(t, dir, nil, "input", "vids/"), 0, "", wantErr)
+	check(t, run(t, dir, nil, "--no-zip", "input", "vids/"), 0, "", wantErr)
 }
 
 func TestBatchRecursive(t *testing.T) {
 	dir := t.TempDir()
 	writeArchive(t, filepath.Join(dir, "input", "sub"), "c.procreate", stdThree())
 	writeArchive(t, filepath.Join(dir, "input", "sub", "deep"), "d.procreate", stdThree())
-	wantErr := batchStart(2, "input", "output/timelapses", "output/projects") +
-		batchConverted("input/sub/c.procreate", "output/timelapses/sub/c.mp4", "output/projects/sub/c.procreepy.procreate", 3, stdSize()) +
-		batchConverted("input/sub/deep/d.procreate", "output/timelapses/sub/deep/d.mp4", "output/projects/sub/deep/d.procreepy.procreate", 3, stdSize()) +
+	wantErr := batchStart(2, "input", "input_procreepy/mp4", "input_procreepy/procreate") +
+		batchConverted("input/sub/c.procreate", "input_procreepy/mp4/sub/c.mp4", "input_procreepy/procreate/sub/c.procreepy.procreate", 3, stdSize()) +
+		batchConverted("input/sub/deep/d.procreate", "input_procreepy/mp4/sub/deep/d.mp4", "input_procreepy/procreate/sub/deep/d.procreepy.procreate", 3, stdSize()) +
 		batchDone(2, 0, 0, 0)
-	check(t, run(t, dir, nil, "-r", "input"), 0, "", wantErr)
-	if _, err := os.Stat(filepath.Join(dir, "output", "timelapses", "sub", "deep", "d.mp4")); err != nil {
+	check(t, run(t, dir, nil, "--no-zip", "-r", "input"), 0, "", wantErr)
+	if _, err := os.Stat(filepath.Join(dir, "input_procreepy", "mp4", "sub", "deep", "d.mp4")); err != nil {
 		t.Error(err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "output", "projects", "sub", "deep", "d.procreepy.procreate")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, "input_procreepy", "procreate", "sub", "deep", "d.procreepy.procreate")); err != nil {
 		t.Error(err)
 	}
 }
@@ -151,19 +151,19 @@ func TestBatchRecursive(t *testing.T) {
 func TestBatchSkipAndForce(t *testing.T) {
 	dir := t.TempDir()
 	writeArchive(t, filepath.Join(dir, "input"), "a.procreate", stdThree())
-	tl := "output/timelapses/a.mp4"
-	pr := "output/projects/a.procreepy.procreate"
-	start := batchStart(1, "input", "output/timelapses", "output/projects")
+	tl := "input_procreepy/mp4/a.mp4"
+	pr := "input_procreepy/procreate/a.procreepy.procreate"
+	start := batchStart(1, "input", "input_procreepy/mp4", "input_procreepy/procreate")
 	conv := batchConverted("input/a.procreate", tl, pr, 3, stdSize())
 
-	check(t, run(t, dir, nil, "input"), 0, "", start+conv+batchDone(1, 0, 0, 0))
+	check(t, run(t, dir, nil, "--no-zip", "input"), 0, "", start+conv+batchDone(1, 0, 0, 0))
 
 	// Both halves of the pair exist: the input is skipped untouched.
-	check(t, run(t, dir, nil, "input"), 0, "",
+	check(t, run(t, dir, nil, "--no-zip", "input"), 0, "",
 		start+batchSkipped("input/a.procreate", tl, pr)+batchDone(0, 1, 0, 0))
 
 	// --force rewrites everything unconditionally.
-	check(t, run(t, dir, nil, "-f", "input"), 0, "", start+conv+batchDone(1, 0, 0, 0))
+	check(t, run(t, dir, nil, "--no-zip", "-f", "input"), 0, "", start+conv+batchDone(1, 0, 0, 0))
 }
 
 func TestBatchMixedFailures(t *testing.T) {
@@ -176,41 +176,45 @@ func TestBatchMixedFailures(t *testing.T) {
 	}
 	writeArchiveCorrupted(t, in, "d.procreate", stdThree(), "video/segments/segment-1.mp4")
 
-	wantErr := batchStart(4, "input", "output/timelapses", "output/projects") +
-		batchConverted("input/a.procreate", "output/timelapses/a.mp4", "output/projects/a.procreepy.procreate", 3, stdSize()) +
-		batchNoVideo("input/b.procreate") +
+	wantErr := batchStart(4, "input", "input_procreepy/mp4", "input_procreepy/procreate") +
+		batchConverted("input/a.procreate", "input_procreepy/mp4/a.mp4", "input_procreepy/procreate/a.procreepy.procreate", 3, stdSize()) +
+		batchNoVideo("input/b.procreate", "input_procreepy/procreate/b.procreepy.procreate") +
 		batchFailed("input/c.procreate",
 			"input is not a valid ZIP archive: "+fsPath("input/c.procreate")+
 				" (not a .procreate file, or truncated/corrupted)") +
 		batchFailed("input/d.procreate",
 			"segment video/segments/segment-1.mp4 is corrupted inside the archive: zip: checksum error") +
 		batchDone(1, 0, 1, 2)
-	check(t, run(t, dir, nil, "input"), 1, "", wantErr)
-	eqBytes(t, "a.mp4", readAll(t, filepath.Join(dir, "output", "timelapses", "a.mp4")),
+	check(t, run(t, dir, nil, "--no-zip", "input"), 1, "", wantErr)
+	eqBytes(t, "a.mp4", readAll(t, filepath.Join(dir, "input_procreepy", "mp4", "a.mp4")),
 		expectedMP4(t, segN(1), segN(2), segN(3)))
-	if _, err := os.Stat(filepath.Join(dir, "output", "timelapses", "b.mp4")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, "input_procreepy", "mp4", "b.mp4")); !os.IsNotExist(err) {
 		t.Error("b.mp4 should not exist")
 	}
-	if _, err := os.Stat(filepath.Join(dir, "output", "projects", "b.procreepy.procreate")); !os.IsNotExist(err) {
-		t.Error("b's project should not exist")
+	// b has no timelapse, so no video — but its project is still produced, which
+	// is the whole point: the artwork is not lost just because nothing was
+	// recorded while it was drawn.
+	if _, err := os.Stat(filepath.Join(dir, "input_procreepy", "procreate", "b.procreepy.procreate")); err != nil {
+		t.Errorf("b's project should exist: %v", err)
 	}
 }
 
-// Only no-video files are a soft skip: the batch still succeeds.
+// A file without a video still succeeds: the batch reports it and carries on.
 func TestBatchOnlyNoSegments(t *testing.T) {
 	dir := t.TempDir()
 	writeArchive(t, filepath.Join(dir, "input"), "b.procreate", stdArchiveEntries(0))
-	wantErr := batchStart(1, "input", "output/timelapses", "output/projects") +
-		batchNoVideo("input/b.procreate") +
+	wantErr := batchStart(1, "input", "input_procreepy/mp4", "input_procreepy/procreate") +
+		batchNoVideo("input/b.procreate", "input_procreepy/procreate/b.procreepy.procreate") +
 		batchDone(0, 0, 1, 0)
-	check(t, run(t, dir, nil, "input"), 0, "", wantErr)
+	check(t, run(t, dir, nil, "--no-zip", "input"), 0, "", wantErr)
 }
 
 func TestBatchStdoutRejected(t *testing.T) {
 	dir := t.TempDir()
 	stdInput(t, dir)
-	check(t, run(t, dir, nil, "input", "-"), 2, "",
-		actionErr("cannot write a directory of results to stdout; give an output directory (default: output/)"))
+	check(t, run(t, dir, nil, "--no-zip", "input", "-"), 2, "",
+		actionErr("cannot write a directory of results to stdout; give an output directory "+
+			"(default: input_procreepy/)"))
 }
 
 func TestBatchOutputIsFile(t *testing.T) {
@@ -219,7 +223,7 @@ func TestBatchOutputIsFile(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "weird.mp4"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	check(t, run(t, dir, nil, "input", "weird.mp4"), 2, "",
+	check(t, run(t, dir, nil, "--no-zip", "input", "weird.mp4"), 2, "",
 		actionErr("output path exists and is not a directory: weird.mp4"))
 }
 
@@ -229,7 +233,7 @@ func TestBatchEmpty(t *testing.T) {
 		if err := os.MkdirAll(filepath.Join(dir, "input"), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		check(t, run(t, dir, nil, "input"), 3, "",
+		check(t, run(t, dir, nil, "--no-zip", "input"), 3, "",
 			actionErr("no .procreate files found in input (use -r to look in sub-directories)"))
 	})
 	t.Run("recursive", func(t *testing.T) {
@@ -237,7 +241,7 @@ func TestBatchEmpty(t *testing.T) {
 		if err := os.MkdirAll(filepath.Join(dir, "input"), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		check(t, run(t, dir, nil, "-r", "input"), 3, "",
+		check(t, run(t, dir, nil, "--no-zip", "-r", "input"), 3, "",
 			actionErr("no .procreate files found in input"))
 	})
 }
@@ -253,10 +257,10 @@ func TestBatchSkipsDotfiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeArchive(t, in, "a.procreate", stdThree())
-	wantErr := batchStart(1, "input", "output/timelapses", "output/projects") +
-		batchConverted("input/a.procreate", "output/timelapses/a.mp4", "output/projects/a.procreepy.procreate", 3, stdSize()) +
+	wantErr := batchStart(1, "input", "input_procreepy/mp4", "input_procreepy/procreate") +
+		batchConverted("input/a.procreate", "input_procreepy/mp4/a.mp4", "input_procreepy/procreate/a.procreepy.procreate", 3, stdSize()) +
 		batchDone(1, 0, 0, 0)
-	check(t, run(t, dir, nil, "input"), 0, "", wantErr)
+	check(t, run(t, dir, nil, "--no-zip", "input"), 0, "", wantErr)
 }
 
 // The slimmed project keeps every member that is not a timelapse segment,
@@ -274,10 +278,10 @@ func TestBatchProjectContent(t *testing.T) {
 	}
 	writeArchive(t, filepath.Join(dir, "input"), "a.procreate", entries)
 	size := int64(len(segN(1)) + len(segN(2)))
-	wantErr := batchStart(1, "input", "output/timelapses", "output/projects") +
-		batchConverted("input/a.procreate", "output/timelapses/a.mp4", "output/projects/a.procreepy.procreate", 2, size) +
+	wantErr := batchStart(1, "input", "input_procreepy/mp4", "input_procreepy/procreate") +
+		batchConverted("input/a.procreate", "input_procreepy/mp4/a.mp4", "input_procreepy/procreate/a.procreepy.procreate", 2, size) +
 		batchDone(1, 0, 0, 0)
-	check(t, run(t, dir, nil, "input"), 0, "", wantErr)
+	check(t, run(t, dir, nil, "--no-zip", "input"), 0, "", wantErr)
 
 	keep := map[string][]byte{}
 	for name, b := range entries {
@@ -286,7 +290,7 @@ func TestBatchProjectContent(t *testing.T) {
 		}
 		keep[name] = b
 	}
-	assertProjectContents(t, filepath.Join(dir, "output", "projects", "a.procreepy.procreate"), keep)
+	assertProjectContents(t, filepath.Join(dir, "input_procreepy", "procreate", "a.procreepy.procreate"), keep)
 }
 
 // The published project carries the source's modification time, so a re-run
@@ -298,12 +302,12 @@ func TestBatchPreservesMtime(t *testing.T) {
 	if err := os.Chtimes(in, when, when); err != nil {
 		t.Fatal(err)
 	}
-	wantErr := batchStart(1, "input", "output/timelapses", "output/projects") +
-		batchConverted("input/a.procreate", "output/timelapses/a.mp4", "output/projects/a.procreepy.procreate", 3, stdSize()) +
+	wantErr := batchStart(1, "input", "input_procreepy/mp4", "input_procreepy/procreate") +
+		batchConverted("input/a.procreate", "input_procreepy/mp4/a.mp4", "input_procreepy/procreate/a.procreepy.procreate", 3, stdSize()) +
 		batchDone(1, 0, 0, 0)
-	check(t, run(t, dir, nil, "input"), 0, "", wantErr)
+	check(t, run(t, dir, nil, "--no-zip", "input"), 0, "", wantErr)
 
-	st, err := os.Stat(filepath.Join(dir, "output", "projects", "a.procreepy.procreate"))
+	st, err := os.Stat(filepath.Join(dir, "input_procreepy", "procreate", "a.procreepy.procreate"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -323,16 +327,16 @@ func TestBatchCaseCollision(t *testing.T) {
 	dir := t.TempDir()
 	writeArchive(t, filepath.Join(dir, "input"), "A.procreate", stdThree())
 	writeArchive(t, filepath.Join(dir, "input"), "a.procreate", stdThree())
-	wantErr := batchStart(2, "input", "output/timelapses", "output/projects") +
-		batchConverted("input/A.procreate", "output/timelapses/A.mp4", "output/projects/A.procreepy.procreate", 3, stdSize()) +
-		batchConverted("input/a.procreate", "output/timelapses/a-2.mp4", "output/projects/a-2.procreepy.procreate", 3, stdSize()) +
+	wantErr := batchStart(2, "input", "input_procreepy/mp4", "input_procreepy/procreate") +
+		batchConverted("input/A.procreate", "input_procreepy/mp4/A.mp4", "input_procreepy/procreate/A.procreepy.procreate", 3, stdSize()) +
+		batchConverted("input/a.procreate", "input_procreepy/mp4/a-2.mp4", "input_procreepy/procreate/a-2.procreepy.procreate", 3, stdSize()) +
 		batchDone(2, 0, 0, 0)
-	check(t, run(t, dir, nil, "input"), 0, "", wantErr)
+	check(t, run(t, dir, nil, "--no-zip", "input"), 0, "", wantErr)
 	for _, p := range []string{
-		filepath.Join("output", "timelapses", "A.mp4"),
-		filepath.Join("output", "timelapses", "a-2.mp4"),
-		filepath.Join("output", "projects", "A.procreepy.procreate"),
-		filepath.Join("output", "projects", "a-2.procreepy.procreate"),
+		filepath.Join("input_procreepy", "mp4", "A.mp4"),
+		filepath.Join("input_procreepy", "mp4", "a-2.mp4"),
+		filepath.Join("input_procreepy", "procreate", "A.procreepy.procreate"),
+		filepath.Join("input_procreepy", "procreate", "a-2.procreepy.procreate"),
 	} {
 		if _, err := os.Stat(filepath.Join(dir, p)); err != nil {
 			t.Error(p, ":", err)
@@ -346,20 +350,20 @@ func TestBatchCaseCollision(t *testing.T) {
 func TestBatchIncompleteRegenerates(t *testing.T) {
 	dir := t.TempDir()
 	writeArchive(t, filepath.Join(dir, "input"), "a.procreate", stdThree())
-	tl := "output/timelapses/a.mp4"
-	pr := "output/projects/a.procreepy.procreate"
-	start := batchStart(1, "input", "output/timelapses", "output/projects")
+	tl := "input_procreepy/mp4/a.mp4"
+	pr := "input_procreepy/procreate/a.procreepy.procreate"
+	start := batchStart(1, "input", "input_procreepy/mp4", "input_procreepy/procreate")
 	conv := batchConverted("input/a.procreate", tl, pr, 3, stdSize())
-	check(t, run(t, dir, nil, "input"), 0, "", start+conv+batchDone(1, 0, 0, 0))
+	check(t, run(t, dir, nil, "--no-zip", "input"), 0, "", start+conv+batchDone(1, 0, 0, 0))
 
 	if err := os.Remove(filepath.Join(dir, tl)); err != nil {
 		t.Fatal(err)
 	}
-	check(t, run(t, dir, nil, "input"), 0, "",
+	check(t, run(t, dir, nil, "--no-zip", "input"), 0, "",
 		start+batchIncomplete("input/a.procreate")+conv+batchDone(1, 0, 0, 0))
 
 	if err := os.Remove(filepath.Join(dir, pr)); err != nil {
 		t.Fatal(err)
 	}
-	check(t, run(t, dir, nil, "-f", "input"), 0, "", start+conv+batchDone(1, 0, 0, 0))
+	check(t, run(t, dir, nil, "--no-zip", "-f", "input"), 0, "", start+conv+batchDone(1, 0, 0, 0))
 }

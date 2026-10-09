@@ -353,9 +353,11 @@ func batchIncomplete(src string) string {
 	return slogLine(slog.LevelWarn, "outputs are incomplete, regenerating the whole set", "input", fsPath(src))
 }
 
-// batchNoVideo renders the soft-skip line for an archive without a timelapse.
-func batchNoVideo(src string) string {
-	return slogLine(slog.LevelWarn, "no timelapse video inside, skipped", "input", fsPath(src))
+// batchNoVideo renders the line for an archive without a timelapse: the project
+// is still written, only the video is absent.
+func batchNoVideo(src, project string) string {
+	return slogLine(slog.LevelInfo, "no timelapse inside, wrote the project without a video",
+		"input", fsPath(src), "project", fsPath(project))
 }
 
 // batchFailed renders the per-file failure line (errMsg is err.Error()).

@@ -39,24 +39,28 @@ Un archivo de entrada, un vídeo de salida:
 my-art.procreate  →  procreepy  →  my-art.mp4
 ```
 
-Una carpeta de entrada, dos carpetas de salida:
+Una carpeta de entrada; a la salida, un árbol de vídeos y un archivo de proyectos:
 
 ```text
-input/                          output/
-├── Cat.procreate         →     ├── timelapses/
+input/                          input_procreepy/
+├── Cat.procreate         →     ├── mp4/
 ├── Landscape.procreate   →     │   ├── Cat.mp4
 └── Sketch.procreate      →     │   ├── Landscape.mp4
                                 │   └── Sketch.mp4
-                                └── projects/
-                                    ├── Cat.procreepy.procreate
-                                    ├── Landscape.procreepy.procreate
-                                    └── Sketch.procreepy.procreate
+                                └── procreate.zip   (los proyectos ligeros)
 ```
 
-- `timelapses/` contiene los vídeos.
-- `projects/` contiene una copia de cada obra **con el timelapse eliminado**:
+- `mp4/` contiene los vídeos.
+- `procreate.zip` contiene una copia de cada obra **con el timelapse eliminado**:
   mucho más pequeña, y puedes volver a importarla en Procreate. Todo lo demás del
-  proyecto se conserva byte a byte.
+  proyecto se conserva byte a byte. Es un zip normal con una carpeta `procreate/`
+  dentro, listo para pasar a un iPad; usa `--no-zip` para dejar esa carpeta
+  `procreate/` en disco en lugar del archivo.
+- La carpeta de salida se nombra según la de entrada (`input/` → `input_procreepy/`)
+  y se crea en el directorio desde el que ejecutas el comando. Da una segunda ruta
+  para elegirla tú.
+- Cada salida conserva la fecha del archivo del que proviene, de modo que volver a
+  importar un proyecto en Procreate no reordena tu galería.
 - `input/` queda exactamente como estaba.
 
 ## Instalación
@@ -214,8 +218,8 @@ Resultado: `videos/artwork.mp4`. La carpeta debe existir ya.
 procreepy input/
 ```
 
-Lee todos los `.procreate` de `input/` y escribe en `output/`, como se muestra en
-[Qué obtienes](#qué-obtienes). Para elegir el destino tú mismo:
+Lee todos los `.procreate` de `input/` y escribe en `input_procreepy/`, como se
+muestra en [Qué obtienes](#qué-obtienes). Para elegir el destino tú mismo:
 
 ```bash
 procreepy input/ ~/Videos/timelapses
@@ -230,12 +234,17 @@ procreepy -r input/ output/
 Qué ocurre mientras se ejecuta:
 
 - El progreso se informa por archivo, una línea cada uno.
-- Un archivo cuyo timelapse nunca se grabó se **omite con una advertencia**. No
-  se escribe nada para él y la ejecución continúa.
+- Un archivo cuyo timelapse nunca se grabó produce igualmente su proyecto ligero
+  (y su PSD con `--psd`) — solo se omite el vídeo, con un aviso, y la ejecución
+  continúa.
 - Un archivo dañado se informa como error, la ejecución sigue con el resto y el
   comando termina con código de salida `1` para que los scripts lo detecten.
 - Ejecutar el mismo comando dos veces no repite el trabajo hecho: las obras cuyos
   resultados ya están se omiten. Añade `-f` para regenerarlas igualmente.
+- Tras una ejecución sin fallos, los proyectos ligeros se empaquetan en
+  `procreate.zip` y la carpeta `procreate/` se elimina. Una ejecución con algún
+  fallo mantiene la carpeta sin empaquetar, para que puedas inspeccionarla y
+  reanudar. Usa `--no-zip` para conservar siempre la carpeta.
 
 ## Comprobar un archivo antes de convertirlo
 
@@ -284,11 +293,19 @@ similares.
 `--psd` funciona **solo con una carpeta de entrada**. Con un archivo suelto se
 detiene con `--psd needs a directory INPUT; it writes into OUTPUT/psd/`.
 
-El PSD es una exportación, no una copia perfecta. Conserva el árbol de capas y
-sus nombres, la visibilidad, la opacidad, los modos de fusión y la propia imagen;
-**no** conserva las máscaras de capa, las relaciones de recorte ni el texto
-editable. Lee [qué conserva y qué pierde el PSD](usage.md#export-a-psd) antes de
-usarlo para trabajo final. Guarda el archivo `.procreate` como copia maestra.
+El PSD es una exportación, no una copia perfecta. Conserva el árbol de capas, la
+estructura y el orden de los grupos, sus nombres, la visibilidad, la opacidad, los
+modos de fusión y la propia imagen; **no** conserva las máscaras de capa, las
+relaciones de recorte ni el texto editable. Lee
+[qué conserva y qué pierde el PSD](usage.md#export-a-psd) antes de usarlo para
+trabajo final. Guarda el archivo `.procreate` como copia maestra.
+
+El PSD también incrusta una pequeña imagen de vista previa, de modo que las apps
+que lo leen (Photoshop, Affinity, GIMP) muestran una miniatura. Esto **no** hace
+por sí solo que el Explorador de Windows dibuje una miniatura: el Explorador
+necesita un controlador de miniaturas registrado para `.psd`, que Windows no
+incluye (lo aporta Photoshop o un paquete como SageThumbs), y para `.procreate`
+no existe ninguno.
 
 ## Qué ocurre con tus archivos
 
@@ -301,9 +318,14 @@ usarlo para trabajo final. Guarda el archivo `.procreate` como copia maestra.
 - **Las ejecuciones por carpeta publican por obra, como conjunto.** El vídeo, el
   proyecto ligero y el PSD de una obra aparecen juntos o no aparecen: nunca
   obtienes un vídeo sin su proyecto.
-- **Repetir la ejecución es seguro.** Las obras terminadas se omiten. Un conjunto
-  que quedó incompleto por una ejecución interrumpida se regenera completo. `-f`
-  regenera todo.
+- **Las fechas se conservan.** Cada salida —el vídeo, el proyecto ligero y el
+  PSD— lleva la fecha de modificación del `.procreate` del que proviene (y, en
+  Windows, también la de creación), de modo que un proyecto reimportado en
+  Procreate mantiene su lugar en la galería.
+- **Repetir la ejecución es seguro.** Las obras terminadas se omiten, tanto si los
+  proyectos siguen siendo una carpeta como si ya están empaquetados en
+  `procreate.zip`. Un conjunto que quedó incompleto por una ejecución interrumpida
+  se regenera completo. `-f` regenera todo.
 - **Convertir un archivo reemplaza el destino** si existe, después de escribir el
   vídeo nuevo por completo.
 - **Los archivos grandes necesitan espacio temporal.** Los timelapses grandes se
@@ -335,7 +357,8 @@ procreepy [options] INPUT [OUTPUT]
 `INPUT` es un archivo `.procreate`, una carpeta de ellos, o `-` para la entrada
 estándar. `OUTPUT` es un nombre de archivo, una carpeta, o `-` para la salida
 estándar. Para un archivo suelto, omitir `OUTPUT` escribe el vídeo en la salida
-estándar; para una carpeta, el valor por defecto es `output/`.
+estándar; para una carpeta, el valor por defecto es `<INPUT>_procreepy/` en el
+directorio actual.
 
 | Opción | Qué hace | Se aplica a |
 |---|---|---|
@@ -346,6 +369,7 @@ estándar; para una carpeta, el valor por defecto es `output/`.
 | `-r`, `--recursive` | procesar también las subcarpetas | solo entrada de carpeta |
 | `-f`, `--force` | sobrescribir resultados que ya existen | solo entrada de carpeta |
 | `--psd` | exportar además un PSD por capas de cada obra | solo entrada de carpeta |
+| `--no-zip` | dejar los proyectos como carpeta `procreate/` en vez de empaquetar `procreate.zip` | solo entrada de carpeta |
 | `--strict` | tratar los huecos en la numeración de segmentos como errores, no advertencias | archivo o carpeta |
 | `--tmpdir DIR` | dónde poner los archivos temporales | siempre |
 | `-q`, `--quiet` | imprimir solo advertencias y errores | siempre |

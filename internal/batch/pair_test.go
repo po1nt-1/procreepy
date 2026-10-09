@@ -45,10 +45,10 @@ func writeProject(t *testing.T, dir, name string, n int, mtime time.Time) string
 	return p
 }
 
-func run(t *testing.T, in, out string, cfg video.Config, force, recursive bool) (int, string) {
+func run(t *testing.T, in, out string, cfg video.Config, force, recursive, zipProjects bool) (int, string) {
 	t.Helper()
 	var buf bytes.Buffer
-	code, err := ConvertDirectory(context.Background(), bufLogger(&buf), in, out, cfg, force, recursive)
+	code, err := ConvertDirectory(context.Background(), bufLogger(&buf), in, out, cfg, force, recursive, zipProjects)
 	if err != nil {
 		t.Fatalf("ConvertDirectory: %v\n%s", err, buf.String())
 	}
@@ -63,7 +63,7 @@ func TestProjectKeepsSourceTimestamp(t *testing.T) {
 	want := time.Date(2021, 3, 4, 5, 6, 7, 0, time.UTC)
 	src := writeProject(t, in, "Cat.procreate", 2, want)
 
-	if code, log := run(t, in, out, video.Config{}, false, false); code != 0 {
+	if code, log := run(t, in, out, video.Config{}, false, false, false); code != 0 {
 		t.Fatalf("code = %d\n%s", code, log)
 	}
 	proj := filepath.Join(out, ProjectDir, "Cat"+ProjectSuffix)
@@ -73,6 +73,17 @@ func TestProjectKeepsSourceTimestamp(t *testing.T) {
 	}
 	if d := st.ModTime().Sub(want); d > time.Second || d < -time.Second {
 		t.Errorf("project mtime = %v, want %v", st.ModTime(), want)
+	}
+	// Every artifact stands for the same artwork, so the video carries the date
+	// too: a results folder that collapses onto the moment of conversion cannot
+	// be sorted or matched up with the originals.
+	tl := filepath.Join(out, TimelapseDir, "Cat.mp4")
+	tst, err := os.Stat(tl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := tst.ModTime().Sub(want); d > time.Second || d < -time.Second {
+		t.Errorf("timelapse mtime = %v, want %v", tst.ModTime(), want)
 	}
 	// The source itself must not have moved.
 	sst, err := os.Stat(src)
@@ -92,7 +103,7 @@ func TestIncompleteOutputSetIsRegenerated(t *testing.T) {
 	in, out := t.TempDir(), filepath.Join(t.TempDir(), "out")
 	writeProject(t, in, "Cat.procreate", 2, time.Time{})
 
-	if code, log := run(t, in, out, video.Config{}, false, false); code != 0 {
+	if code, log := run(t, in, out, video.Config{}, false, false, false); code != 0 {
 		t.Fatalf("first run: code=%d\n%s", code, log)
 	}
 	proj := filepath.Join(out, ProjectDir, "Cat"+ProjectSuffix)
@@ -100,7 +111,7 @@ func TestIncompleteOutputSetIsRegenerated(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	code, log := run(t, in, out, video.Config{}, false, false)
+	code, log := run(t, in, out, video.Config{}, false, false, false)
 	if code != 0 {
 		t.Fatalf("second run: code=%d\n%s", code, log)
 	}
@@ -119,9 +130,9 @@ func TestIncompleteOutputSetIsRegenerated(t *testing.T) {
 func TestCompleteOutputSetIsSkipped(t *testing.T) {
 	in, out := t.TempDir(), filepath.Join(t.TempDir(), "out")
 	writeProject(t, in, "Cat.procreate", 2, time.Time{})
-	run(t, in, out, video.Config{}, false, false)
+	run(t, in, out, video.Config{}, false, false, false)
 
-	_, log := run(t, in, out, video.Config{}, false, false)
+	_, log := run(t, in, out, video.Config{}, false, false, false)
 	if !strings.Contains(log, "existed=1") || !strings.Contains(log, "converted=0") {
 		t.Errorf("second run should skip everything:\n%s", log)
 	}
@@ -132,7 +143,7 @@ func TestCompleteOutputSetIsSkipped(t *testing.T) {
 func TestForceOverwritesBothOutputs(t *testing.T) {
 	in, out := t.TempDir(), filepath.Join(t.TempDir(), "out")
 	writeProject(t, in, "Cat.procreate", 2, time.Time{})
-	run(t, in, out, video.Config{}, false, false)
+	run(t, in, out, video.Config{}, false, false, false)
 
 	mp4 := filepath.Join(out, TimelapseDir, "Cat.mp4")
 	proj := filepath.Join(out, ProjectDir, "Cat"+ProjectSuffix)
@@ -142,7 +153,7 @@ func TestForceOverwritesBothOutputs(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if code, log := run(t, in, out, video.Config{}, true, false); code != 0 {
+	if code, log := run(t, in, out, video.Config{}, true, false, false); code != 0 {
 		t.Fatalf("force run: code=%d\n%s", code, log)
 	}
 	for _, p := range []string{mp4, proj} {
@@ -165,7 +176,7 @@ func TestOutputInsideInputRejected(t *testing.T) {
 	out := filepath.Join(in, "out")
 
 	_, err := ConvertDirectory(context.Background(), bufLogger(&bytes.Buffer{}), in, out,
-		video.Config{}, false, true)
+		video.Config{}, false, true, false)
 	if err == nil {
 		t.Fatal("want an error for an output directory inside the input tree")
 	}
@@ -179,7 +190,7 @@ func TestRecursiveMirrorsBothTrees(t *testing.T) {
 	in, out := t.TempDir(), filepath.Join(t.TempDir(), "out")
 	writeProject(t, filepath.Join(in, "2025"), "Cat.procreate", 2, time.Time{})
 
-	if code, log := run(t, in, out, video.Config{}, false, true); code != 0 {
+	if code, log := run(t, in, out, video.Config{}, false, true, false); code != 0 {
 		t.Fatalf("code=%d\n%s", code, log)
 	}
 	for _, p := range []string{
@@ -199,7 +210,7 @@ func TestSpacesAndUnicodePaths(t *testing.T) {
 	for _, n := range names {
 		writeProject(t, in, n, 1, time.Time{})
 	}
-	if code, log := run(t, in, out, video.Config{}, false, false); code != 0 {
+	if code, log := run(t, in, out, video.Config{}, false, false, false); code != 0 {
 		t.Fatalf("code=%d\n%s", code, log)
 	}
 	for _, n := range names {
@@ -227,7 +238,7 @@ func TestCancelledBatchLeavesNoPartials(t *testing.T) {
 	cancel()
 
 	var buf bytes.Buffer
-	_, err := ConvertDirectory(ctx, bufLogger(&buf), in, out, video.Config{}, false, false)
+	_, err := ConvertDirectory(ctx, bufLogger(&buf), in, out, video.Config{}, false, false, false)
 	if err != context.Canceled {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}
@@ -245,28 +256,45 @@ func TestCancelledBatchLeavesNoPartials(t *testing.T) {
 
 // TestNoTimelapseProducesNoOutputs: an artwork recorded with the timelapse
 // turned off yields neither an MP4 nor a project.
-func TestNoTimelapseProducesNoOutputs(t *testing.T) {
+// TestNoTimelapseStillProducesProject: an artwork drawn with the timelapse off
+// has no video to extract, but the project is still worth writing. Abandoning
+// the whole input left nothing but an empty directory skeleton behind.
+func TestNoTimelapseStillProducesProject(t *testing.T) {
 	in, out := t.TempDir(), filepath.Join(t.TempDir(), "out")
 	testkit.Archive{ProcreateStyle: true, Entries: []testkit.Entry{
 		{Name: "Document.archive", Data: []byte("doc")},
 	}}.Write(t, in, "Quiet.procreate")
 
-	code, log := run(t, in, out, video.Config{}, false, false)
+	code, log := run(t, in, out, video.Config{}, false, false, false)
 	if code != 0 {
 		t.Fatalf("code = %d, want 0\n%s", code, log)
 	}
-	if !strings.Contains(log, "no timelapse video inside, skipped") {
+	if !strings.Contains(log, "no timelapse inside, wrote the project without a video") {
 		t.Errorf("log:\n%s", log)
 	}
-	for _, p := range []string{
-		filepath.Join(out, TimelapseDir, "Quiet.mp4"),
-		filepath.Join(out, ProjectDir, "Quiet"+ProjectSuffix),
-	} {
-		if _, err := os.Stat(p); err == nil {
-			t.Errorf("%s should not exist", p)
-		}
+	project := filepath.Join(out, ProjectDir, "Quiet"+ProjectSuffix)
+	if _, err := os.Stat(project); err != nil {
+		t.Errorf("project missing: %v", err)
+	}
+	if p := filepath.Join(out, TimelapseDir, "Quiet.mp4"); fileExists(p) {
+		t.Errorf("%s should not exist: there was no timelapse to write", p)
 	}
 	assertNoPartials(t, out)
+
+	// A second run must recognise the set as complete rather than rebuilding it
+	// forever, even though the video is legitimately absent.
+	code, log = run(t, in, out, video.Config{}, false, false, false)
+	if code != 0 {
+		t.Fatalf("rerun code = %d, want 0\n%s", code, log)
+	}
+	if !strings.Contains(log, "skipped, outputs already exist") {
+		t.Errorf("rerun log:\n%s", log)
+	}
+}
+
+func fileExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
 }
 
 // TestCorruptInputProducesNoOutputs: a failure must not publish a partial pair.
@@ -276,7 +304,7 @@ func TestCorruptInputProducesNoOutputs(t *testing.T) {
 		[]byte("this is not a zip archive"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	code, log := run(t, in, out, video.Config{}, false, false)
+	code, log := run(t, in, out, video.Config{}, false, false, false)
 	if code != 1 {
 		t.Fatalf("code = %d, want 1\n%s", code, log)
 	}
@@ -296,7 +324,7 @@ func TestPSDExport(t *testing.T) {
 	in, out := t.TempDir(), filepath.Join(t.TempDir(), "out")
 	writeProject(t, in, "Cat.procreate", 2, time.Time{})
 
-	code, log := run(t, in, out, video.Config{PSD: true}, false, false)
+	code, log := run(t, in, out, video.Config{PSD: true}, false, false, false)
 	if code != 0 {
 		t.Fatalf("code = %d\n%s", code, log)
 	}

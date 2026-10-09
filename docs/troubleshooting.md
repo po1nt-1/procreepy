@@ -87,11 +87,14 @@ xattr -d com.apple.quarantine ./procreepy
 level=ERROR msg="no video/segments in this archive (time-lapse recording was probably turned off for this artwork)"
 ```
 
-For a folder run it is a warning and the run continues:
+For a folder run it is not an error: the slim project (and, under `--psd`, the
+PSD) is written anyway, only the video is skipped, and the run continues:
 
 ```text
-level=WARN msg="no timelapse video inside, skipped" input="input/Sketch.procreate"
+level=INFO msg="no timelapse inside, wrote the project without a video" input="input/Sketch.procreate" project="output/procreate/Sketch.procreepy.procreate"
 ```
+
+Such artworks are counted under `no_video` in the batch summary, not `failed`.
 
 **Cause** — Procreate's Timelapse Recording was off for that artwork, so no
 video was ever stored inside the file.
@@ -104,9 +107,10 @@ procreepy --list artwork.procreate
 
 If it reports `segments: 0`, there is nothing to extract.
 
-**What to do** — nothing can be done for that file. procreepy extracts the
-timelapse Procreate recorded; it cannot reconstruct one from layers or undo
-history. For future artworks, enable Timelapse Recording in Procreate's canvas
+**What to do** — no video can be recovered: procreepy extracts the timelapse
+Procreate recorded and cannot reconstruct one from layers or undo history. The
+slim project you still get is useful on its own (it is just the artwork without a
+timelapse). For future artworks, enable Timelapse Recording in Procreate's canvas
 settings before you start drawing.
 
 ## The file is not a valid Procreate file
@@ -178,8 +182,11 @@ list them with `procreepy --list` to see how many there are.
 level=WARN msg="segment numbers missing: 2 (the video would have gaps)"
 ```
 
-**Cause** — the numbered sequence inside the archive has a hole. The available
-segments are joined, so the timelapse jumps at that point.
+**Cause** — the numbered sequence inside the archive has an **interior** hole
+(a number missing between the first and last present). The available segments are
+joined, so the timelapse jumps at that point. A sequence that merely starts above
+1 — Procreate prunes the oldest segments as a recording grows — is complete and
+does **not** trigger this warning.
 
 **What to do** — accept the gap, or make it fatal with `--strict`, which turns
 this into exit code `5` and writes nothing.

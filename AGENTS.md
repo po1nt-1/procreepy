@@ -55,13 +55,13 @@ exactly once, from the e2e binary), then merges both profiles into
 |---|---|
 | `cmd/procreepy` | entry point |
 | `internal/cli` | argparse-compatible flag parsing, dispatch, slog logger, exit codes, help/version (exact text pinned by e2e) |
-| `internal/batch` | directory mode: discovery, plan/collision suffixes, `ConvertDirectory` |
+| `internal/batch` | directory mode: discovery, plan/collision suffixes, `ConvertDirectory`, packing projects into `procreate.zip` (`--no-zip` opts out; resume reads done-ness from the archive) |
 | `internal/video` | `Convert` orchestration, `--list`/`--verify` reports, I/O (spool, atomic `.partial` write), error types, per-OS shims `io_{linux,darwin,windows}.go` |
 | `internal/procreate` | ZIP open/validate, segment scan (regex, numeric sort, gap/ambiguous/stray detection), slimmed copy via raw-ZIP pass-through (`WriteSlimmed` on `CreateRaw`/`OpenRaw`, every kept member bit-identical) |
 | `internal/mp4` | custom MP4 box parser/writer: moov-first emit, stream copy, stco/co64 switch at 4 GiB |
 | `internal/procodec` | decodes the two compressed containers Procreate uses for layer tiles: Apple compression-lib LZ4 (`.lz4`) and bare LZO1X-1 (`.chunk`) |
 | `internal/silica` | reads `Document.archive` (Apple binary plist / NSKeyedArchiver) and the layer tiles it references — feeds `--psd` |
-| `internal/psd` | writes 8-bit RGBA PSDs: layer tree, names, visibility/opacity/blend/bounds/locks, PackBits, DPI+ICC, merged composite; fidelity limits documented in `docs/usage.md` |
+| `internal/psd` | writes 8-bit RGBA PSDs: layer tree (groups+order), names, visibility/opacity/blend/bounds/locks, PackBits, DPI+ICC, merged composite (cached), embedded preview resource 1036; fidelity limits documented in `docs/usage.md` |
 | `internal/testkit` | builds synthetic MP4 segments and `.procreate` ZIPs for tests — no binary fixtures are committed |
 | `internal/fixture` | regression suite against a real `.procreate` corpus; every test skips unless `PROCREATE_FIXTURE_DIR` or `PROCREATE_FIXTURE_ZIP` is set |
 | `internal/e2e` | golden-output suite: builds the real (instrumented) binary in `TestMain` and compares exit code + stdout + stderr byte-for-byte |

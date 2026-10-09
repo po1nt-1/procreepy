@@ -151,7 +151,10 @@ func TestConvertStrictGap(t *testing.T) {
 }
 
 func TestConvertNonOneStart(t *testing.T) {
-	// Gap checking always spans 1..last, so a lone segment-5 warns about 1-4.
+	// Gap checking spans the segments that are present, not 1..last: Procreate
+	// prunes older segments as a recording grows, so a timelapse beginning at
+	// segment-5 is complete. It must convert silently — anchoring the range at 1
+	// warned about "1-4 missing" on almost every real artwork.
 	dir := t.TempDir()
 	entries := map[string][]byte{
 		"Document/document.data":       []byte("doc"),
@@ -159,7 +162,7 @@ func TestConvertNonOneStart(t *testing.T) {
 		"video/segments/segment-5.mp4": segN(5),
 	}
 	writeArchive(t, dir, "in.procreate", entries)
-	wantErr := gapWarn("1-4") + chattyBlock("in.procreate", 1, "out.mp4", 2.0)
+	wantErr := chattyBlock("in.procreate", 1, "out.mp4", 2.0)
 	check(t, run(t, dir, nil, "in.procreate", "out.mp4"), 0, "", wantErr)
 	eqBytes(t, "out.mp4", readAll(t, filepath.Join(dir, "out.mp4")), expectedMP4(t, segN(5)))
 }

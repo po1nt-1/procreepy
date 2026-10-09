@@ -82,20 +82,22 @@ func Discover(root string, recursive bool) ([]string, error) {
 }
 
 // ConvertDirectory converts every .procreate in inDir (optionally recursive).
-// Each input yields an MP4 under OUTPUT/timelapses, a video-less project under
-// OUTPUT/projects and, with cfg.PSD, a layered export under OUTPUT/psd. It
+// Each input yields an MP4 under OUTPUT/mp4, a video-less project under
+// OUTPUT/procreate and, with cfg.PSD, a layered export under OUTPUT/psd. With
+// zipProjects, a clean run then replaces the project directory with
+// OUTPUT/procreate.zip, which is what gets transferred back to an iPad. It
 // returns the exit code (0, or 1 when any file failed) and an error for
 // run-aborting problems (bad command line, unwritable output root).
 func ConvertDirectory(ctx context.Context, log *slog.Logger, inDir, outputArg string,
-	cfg video.Config, force, recursive bool) (int, error) {
+	cfg video.Config, force, recursive, zipProjects bool) (int, error) {
 
 	if outputArg == "-" {
 		return 0, &video.UsageError{Msg: "cannot write a directory of results to stdout; give an " +
-			"output directory (default: " + DefaultOutputDir + "/)"}
+			"output directory (default: " + DefaultOutputDir(inDir) + "/)"}
 	}
 	outDir := outputArg
 	if outDir == "" {
-		outDir = DefaultOutputDir
+		outDir = DefaultOutputDir(inDir)
 	}
 	if st, err := os.Stat(outDir); err == nil && !st.IsDir() {
 		return 0, &video.UsageError{Msg: "output path exists and is not a directory: " + outDir}
@@ -124,6 +126,16 @@ func ConvertDirectory(ctx context.Context, log *slog.Logger, inDir, outputArg st
 		}
 	}
 
+	// When the projects live in an archive, the archive is where "already done"
+	// is recorded: packing removes the directory, so a stat on the project path
+	// would report every artwork as missing and rebuild all of them.
+	onDisk := func(p string) bool { _, err := os.Stat(p); return err == nil }
+	exists := onDisk
+	if zipProjects {
+		packed := projectZipPaths(outDir)
+		exists = func(p string) bool { return onDisk(p) || packed[p] }
+	}
+
 	items := Plan(files, inDir, roots, recursive)
 	log.InfoContext(ctx, "batch conversion started", "files", len(items), "input", withSlash(inDir),
 		"timelapses", withSlash(roots.Timelapses), "projects", withSlash(roots.Projects))
@@ -134,13 +146,26 @@ func ConvertDirectory(ctx context.Context, log *slog.Logger, inDir, outputArg st
 			return 0, cerr
 		}
 		if !force {
-			switch outputState(it.Targets) {
+			switch outputState(it.Targets, exists) {
 			case allPresent:
 				log.InfoContext(ctx, "skipped, outputs already exist (use --force to overwrite)",
 					"input", it.Src, "timelapse", it.Targets.Timelapse, "project", it.Targets.Project)
 				existed++
 				continue
 			case somePresent:
+				// An artwork recorded with the timelapse off is complete without a
+				// video, so its set looks half-finished forever. Confirm that
+				// against the archive before deciding, or every such artwork would
+				// be rebuilt on every run.
+				if onlyTimelapseMissing(it.Targets, exists) {
+					if has, herr := procreate.HasTimelapse(it.Src); herr == nil && !has {
+						log.InfoContext(ctx, "skipped, outputs already exist (use --force to overwrite)",
+							"input", it.Src, "timelapse", it.Targets.Timelapse,
+							"project", it.Targets.Project)
+						existed++
+						continue
+					}
+				}
 				// A half-finished earlier run: regenerating the whole set is the
 				// only way back to a consistent pair, so say so rather than
 				// skipping an input whose project is missing.
@@ -156,23 +181,44 @@ func ConvertDirectory(ctx context.Context, log *slog.Logger, inDir, outputArg st
 			if errors.Is(err, context.Canceled) {
 				return 0, err
 			}
-			if errors.Is(err, procreate.ErrNoSegments) {
-				log.WarnContext(ctx, "no timelapse video inside, skipped", "input", it.Src)
-				noVideo++
-			} else {
-				log.ErrorContext(ctx, "file conversion failed", "input", it.Src, "err", err)
-				failed++
-			}
+			log.ErrorContext(ctx, "file conversion failed", "input", it.Src, "err", err)
+			failed++
 			continue
 		}
-		log.InfoContext(ctx, "converted", "input", it.Src, "timelapse", it.Targets.Timelapse,
-			"project", it.Targets.Project, "removed_segments", res.Removed,
-			"video_size", video.HumanBytes(res.RemovedBytes))
+		if res.NoTimelapse {
+			// Not a failure and not a skip: the project (and the PSD, when asked
+			// for) were written, there was simply no video to extract.
+			log.InfoContext(ctx, "no timelapse inside, wrote the project without a video",
+				"input", it.Src, "project", it.Targets.Project)
+			noVideo++
+		} else {
+			log.InfoContext(ctx, "converted", "input", it.Src, "timelapse", it.Targets.Timelapse,
+				"project", it.Targets.Project, "removed_segments", res.Removed,
+				"video_size", video.HumanBytes(res.RemovedBytes))
+		}
 		if res.PSDWritten {
 			log.InfoContext(ctx, "psd exported", "input", it.Src, "psd", it.Targets.PSD,
 				"layers", res.Layers)
 		}
-		converted++
+		if !res.NoTimelapse {
+			converted++
+		}
+	}
+
+	// Pack only after a clean run. With failures on the board the directory is
+	// the material for working out what went wrong and for resuming, and
+	// replacing it with an archive would take that away.
+	if zipProjects && failed == 0 {
+		n, perr := packProjects(ctx, outDir)
+		if perr != nil {
+			if cerr := ctx.Err(); cerr != nil {
+				return 0, cerr
+			}
+			return 0, &video.WriteError{Msg: "cannot pack the projects into " +
+				filepath.Join(outDir, ProjectArchiveName) + ": " + strerror(perr)}
+		}
+		log.InfoContext(ctx, "projects packed for transfer",
+			"archive", filepath.Join(outDir, ProjectArchiveName), "projects", n)
 	}
 
 	log.InfoContext(ctx, "batch completed", "converted", converted, "existed", existed,
@@ -195,11 +241,11 @@ const (
 // outputState reports the state of a whole output set rather than of a single
 // file: an input whose MP4 survived but whose project did not is not done, and
 // treating it as done is how a half-converted directory stays half-converted.
-func outputState(t Targets) presence {
+func outputState(t Targets, exists func(string) bool) presence {
 	want := t.all()
 	have := 0
 	for _, p := range want {
-		if _, err := os.Stat(p); err == nil {
+		if exists(p) {
 			have++
 		}
 	}
@@ -211,6 +257,24 @@ func outputState(t Targets) presence {
 	default:
 		return somePresent
 	}
+}
+
+// onlyTimelapseMissing reports whether every target but the video is present.
+// That is the shape a finished artwork without a recorded timelapse leaves
+// behind, and the only case worth re-opening the archive to confirm.
+func onlyTimelapseMissing(t Targets, exists func(string) bool) bool {
+	if exists(t.Timelapse) {
+		return false
+	}
+	for _, p := range t.all() {
+		if p == t.Timelapse {
+			continue
+		}
+		if !exists(p) {
+			return false
+		}
+	}
+	return true
 }
 
 // withSlash renders a directory with a trailing separator, without doubling one

@@ -148,6 +148,45 @@ func TestFindSegmentsStrictGap(t *testing.T) {
 	}
 }
 
+// Procreate prunes older segments as a recording grows, so a real timelapse
+// often starts at segment-5 rather than segment-1. That is a complete video,
+// not a gap, and it must not warn — anchoring the expected range at 1 used to
+// report 1-4 as missing for almost every artwork.
+func TestFindSegmentsLeadingOffsetIsNotAGap(t *testing.T) {
+	var warns []string
+	segs, err := FindSegments(ms(
+		"video/segments/segment-5.mp4",
+		"video/segments/segment-6.mp4",
+		"video/segments/segment-7.mp4",
+	), Options{Warn: func(f string, a ...any) {
+		warns = append(warns, fmt.Sprintf(f, a...))
+	}})
+	if err != nil {
+		t.Fatalf("FindSegments: %v", err)
+	}
+	if len(segs) != 3 {
+		t.Fatalf("segments = %+v, want 3", segs)
+	}
+	if len(warns) != 0 {
+		t.Fatalf("warnings = %q, want none", warns)
+	}
+}
+
+// --strict must agree: a leading offset is not an error either, only a hole
+// between the segments that are present is.
+func TestFindSegmentsStrictLeadingOffset(t *testing.T) {
+	segs, err := FindSegments(ms(
+		"video/segments/segment-4.mp4",
+		"video/segments/segment-5.mp4",
+	), Options{Strict: true})
+	if err != nil {
+		t.Fatalf("FindSegments: %v", err)
+	}
+	if len(segs) != 2 {
+		t.Fatalf("segments = %+v, want 2", segs)
+	}
+}
+
 func TestFormatRanges(t *testing.T) {
 	if got := formatRanges([]int{1, 2, 3, 7, 9, 10}); got != "1-3, 7, 9-10" {
 		t.Fatalf("formatRanges = %q", got)

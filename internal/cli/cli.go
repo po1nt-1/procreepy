@@ -56,7 +56,7 @@ const epilog = `examples:
   procreepy artwork.procreate > artwork.mp4
   cat artwork.procreate | procreepy - > artwork.mp4
 
-  procreepy input/                    every .procreate in input/ -> ` + batch.DefaultOutputDir + `/
+  procreepy input/                    every .procreate in input/ -> input` + batch.OutputSuffix + `/
   procreepy input/ out/               same, but write into out/
   procreepy -r input/ out/            also process sub-directories (mirrored in both output trees)
   procreepy --psd input/ out/         additionally export a layered .psd per artwork
@@ -64,15 +64,17 @@ const epilog = `examples:
   procreepy --verify artwork.procreate  check every segment; create no output video
 
 A directory INPUT produces two trees under OUTPUT, one per purpose:
-  OUTPUT/` + batch.TimelapseDir + `/NAME.mp4                    the joined timelapse
+  OUTPUT/` + batch.TimelapseDir + `/NAME.mp4                         the joined timelapse
   OUTPUT/` + batch.ProjectDir + `/NAME` + batch.ProjectSuffix + `   the project without the timelapse
 With --psd, OUTPUT/` + batch.PSDDir + `/NAME.psd is written too.
-The project keeps the modification time of its source, so re-importing it into
+Each result keeps the dates of its source, so re-importing a project into
 Procreate does not reshuffle the gallery. Originals are never modified.
+An artwork recorded with the timelapse off still yields a project (and a PSD),
+just no video.
 
 INPUT may be a file, a directory, or - for stdin.
 OUTPUT may be a file, a directory, or - for stdout.
-For a single file, omitted OUTPUT means stdout; for directory input, omitted OUTPUT defaults to ` + batch.DefaultOutputDir + `/.
+For a single file, omitted OUTPUT means stdout; for directory input, omitted OUTPUT defaults to <INPUT>` + batch.OutputSuffix + `/ in the current directory.
 Messages and diagnostics go to stderr; stdout carries only video (or the --list/--verify report).`
 
 const helpText = `usage: ` + usageLine + `
@@ -90,6 +92,7 @@ options:
   -f, --force       directory input: overwrite outputs that already exist (default: skip them)
   --strict          treat missing segment numbers as errors instead of warnings
   --psd             directory input: also export a layered .psd per artwork
+  --no-zip          directory input: leave the projects as a directory instead of ` + batch.ProjectArchiveName + `
   --tmpdir DIR      where to put temporary files (default: $TMPDIR, else /var/tmp, else the system temp directory)
   -q, --quiet       only print warnings and errors to stderr
   --version         show program's version number and exit
@@ -117,10 +120,13 @@ type parsedArgs struct {
 	verify    bool
 	recursive bool
 	force     bool
-	strict    bool
-	psd       bool
-	quiet     bool
-	tmpdir    string
+	// noZip leaves the projects as a directory. Packing them is the default
+	// because the usual next step is one transfer back to a tablet.
+	noZip  bool
+	strict bool
+	psd    bool
+	quiet  bool
+	tmpdir string
 }
 
 type action int
@@ -258,7 +264,7 @@ func dispatch(ctx context.Context, log *slog.Logger, a *parsedArgs) (int, error)
 		if a.hasOutput {
 			outArg = a.output
 		}
-		return batch.ConvertDirectory(ctx, log, src, outArg, cfg, a.force, a.recursive)
+		return batch.ConvertDirectory(ctx, log, src, outArg, cfg, a.force, a.recursive, !a.noZip)
 	}
 	if a.psd {
 		return 0, &video.UsageError{Msg: "--psd needs a directory INPUT; it writes into OUTPUT/" +
@@ -395,6 +401,11 @@ func parseArgs(argv []string) (*parsedArgs, action, error) {
 					return nil, actNone, err
 				}
 				a.psd = true
+			case "no-zip":
+				if _, _, err := storeTrue("no-zip", hasVal, val); err != nil {
+					return nil, actNone, err
+				}
+				a.noZip = true
 			case "quiet":
 				if _, _, err := storeTrue("quiet", hasVal, val); err != nil {
 					return nil, actNone, err

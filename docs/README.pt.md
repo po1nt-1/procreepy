@@ -39,24 +39,28 @@ Um arquivo de entrada, um vídeo de saída:
 my-art.procreate  →  procreepy  →  my-art.mp4
 ```
 
-Uma pasta de entrada, duas pastas de saída:
+Uma pasta de entrada; na saída, uma árvore de vídeos e um arquivo de projetos:
 
 ```text
-input/                          output/
-├── Cat.procreate         →     ├── timelapses/
+input/                          input_procreepy/
+├── Cat.procreate         →     ├── mp4/
 ├── Landscape.procreate   →     │   ├── Cat.mp4
 └── Sketch.procreate      →     │   ├── Landscape.mp4
                                 │   └── Sketch.mp4
-                                └── projects/
-                                    ├── Cat.procreepy.procreate
-                                    ├── Landscape.procreepy.procreate
-                                    └── Sketch.procreepy.procreate
+                                └── procreate.zip   (os projetos enxutos)
 ```
 
-- `timelapses/` contém os vídeos.
-- `projects/` contém uma cópia de cada arte **com o timelapse removido**: muito
-  menor, e você pode importá-la de volta no Procreate. Todo o resto do projeto é
-  preservado byte a byte.
+- `mp4/` contém os vídeos.
+- `procreate.zip` contém uma cópia de cada arte **com o timelapse removido**:
+  muito menor, e você pode importá-la de volta no Procreate. Todo o resto do
+  projeto é preservado byte a byte. É um zip comum com uma pasta `procreate/`
+  dentro, pronto para passar para um iPad; use `--no-zip` para deixar essa pasta
+  `procreate/` em disco em vez do arquivo.
+- A pasta de saída recebe o nome da de entrada (`input/` → `input_procreepy/`) e é
+  criada no diretório de onde você executa o comando. Informe um segundo caminho
+  para escolhê-la você mesmo.
+- Cada saída mantém a data do arquivo de origem, de modo que reimportar um projeto
+  no Procreate não reorganiza sua galeria.
 - `input/` fica exatamente como estava.
 
 ## Instalação
@@ -212,8 +216,9 @@ Resultado: `videos/artwork.mp4`. A pasta precisa existir antes.
 procreepy input/
 ```
 
-Lê todos os `.procreate` em `input/` e escreve em `output/`, como mostrado em
-[O que você obtém](#o-que-você-obtém). Para escolher o destino você mesmo:
+Lê todos os `.procreate` em `input/` e escreve em `input_procreepy/`, como
+mostrado em [O que você obtém](#o-que-você-obtém). Para escolher o destino você
+mesmo:
 
 ```bash
 procreepy input/ ~/Videos/timelapses
@@ -228,12 +233,17 @@ procreepy -r input/ output/
 O que acontece durante a execução:
 
 - O progresso é informado por arquivo, uma linha para cada.
-- Um arquivo cujo timelapse nunca foi gravado é **ignorado com um aviso**. Nada é
-  escrito para ele e a execução continua.
+- Um arquivo cujo timelapse nunca foi gravado ainda produz seu projeto enxuto (e
+  seu PSD com `--psd`) — só o vídeo é ignorado, com uma nota, e a execução
+  continua.
 - Um arquivo danificado é relatado como erro, a execução segue com os demais, e o
   comando termina com código de saída `1` para que scripts percebam.
 - Executar o mesmo comando duas vezes não refaz o trabalho pronto: artes cujos
   resultados já estão lá são ignoradas. Acrescente `-f` para refazê-las.
+- Após uma execução sem falhas, os projetos enxutos são empacotados em
+  `procreate.zip` e a pasta `procreate/` é removida. Uma execução com qualquer
+  falha mantém a pasta sem empacotar, para que você possa inspecioná-la e
+  retomar. Use `--no-zip` para manter sempre a pasta.
 
 ## Verificar um arquivo antes de converter
 
@@ -281,11 +291,18 @@ similares.
 `--psd` funciona **somente com uma pasta de entrada**. Com um arquivo único, o
 comando para com `--psd needs a directory INPUT; it writes into OUTPUT/psd/`.
 
-O PSD é uma exportação, não uma cópia perfeita. Ele mantém a árvore de camadas e
-os nomes, a visibilidade, a opacidade, os modos de mesclagem e a própria imagem;
-**não** mantém máscaras de camada, relações de recorte nem texto editável. Leia
+O PSD é uma exportação, não uma cópia perfeita. Ele mantém a árvore de camadas, a
+estrutura e a ordem dos grupos, os nomes, a visibilidade, a opacidade, os modos
+de mesclagem e a própria imagem; **não** mantém máscaras de camada, relações de
+recorte nem texto editável. Leia
 [o que o PSD preserva e o que ele perde](usage.md#export-a-psd) antes de usá-lo
 para trabalho final. Mantenha o arquivo `.procreate` como cópia mestra.
+
+O PSD também embute uma pequena imagem de prévia, de modo que apps que o leem
+(Photoshop, Affinity, GIMP) mostram uma miniatura. Isso **não** faz, por si só, o
+Explorador do Windows desenhar uma miniatura: ele precisa de um manipulador de
+miniaturas registrado para `.psd`, que o Windows não traz (o Photoshop ou um
+pacote como o SageThumbs fornece um), e para `.procreate` não existe nenhum.
 
 ## O que acontece com seus arquivos
 
@@ -298,9 +315,14 @@ para trabalho final. Mantenha o arquivo `.procreate` como cópia mestra.
 - **Execuções em pasta publicam por arte, como um conjunto.** O vídeo, o projeto
   enxuto e o PSD de uma arte aparecem juntos ou não aparecem — você nunca fica
   com um vídeo sem o projeto dele.
-- **Executar de novo é seguro.** Artes concluídas são ignoradas. Um conjunto que
-  ficou incompleto por uma execução interrompida é refeito por inteiro. `-f`
-  refaz tudo.
+- **As datas são preservadas.** Cada saída — o vídeo, o projeto enxuto e o PSD —
+  recebe a data de modificação do `.procreate` de que veio (e, no Windows, também
+  a de criação), de modo que um projeto reimportado no Procreate mantém seu lugar
+  na galeria.
+- **Executar de novo é seguro.** Artes concluídas são ignoradas, quer os projetos
+  ainda sejam uma pasta, quer já estejam empacotados em `procreate.zip`. Um
+  conjunto que ficou incompleto por uma execução interrompida é refeito por
+  inteiro. `-f` refaz tudo.
 - **Converter um arquivo substitui o destino** se ele existir, depois que o novo
   vídeo é escrito por completo.
 - **Arquivos grandes precisam de espaço temporário.** Timelapses grandes são
@@ -332,7 +354,7 @@ procreepy [options] INPUT [OUTPUT]
 `INPUT` é um arquivo `.procreate`, uma pasta com eles, ou `-` para a entrada
 padrão. `OUTPUT` é um nome de arquivo, uma pasta, ou `-` para a saída padrão.
 Para um arquivo único, omitir `OUTPUT` escreve o vídeo na saída padrão; para uma
-pasta, o padrão é `output/`.
+pasta, o padrão é `<INPUT>_procreepy/` no diretório atual.
 
 | Opção | O que faz | Aplica-se a |
 |---|---|---|
@@ -343,6 +365,7 @@ pasta, o padrão é `output/`.
 | `-r`, `--recursive` | processar também as subpastas | só entrada de pasta |
 | `-f`, `--force` | sobrescrever resultados que já existem | só entrada de pasta |
 | `--psd` | exportar também um PSD em camadas por arte | só entrada de pasta |
+| `--no-zip` | deixar os projetos como pasta `procreate/` em vez de empacotar `procreate.zip` | só entrada de pasta |
 | `--strict` | tratar falhas na numeração de segmentos como erros, não avisos | arquivo ou pasta |
 | `--tmpdir DIR` | onde colocar os arquivos temporários | sempre |
 | `-q`, `--quiet` | imprimir apenas avisos e erros | sempre |

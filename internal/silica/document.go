@@ -221,6 +221,19 @@ func collectNodes(k *keyed, refs []any, unmapped map[int]bool, depth int) []*Nod
 			})
 		}
 	}
+	// Procreate archives a layer array top-most first, the way the layer list
+	// reads on screen. Document.Layers is defined bottom-most first, which is
+	// what a compositor and the PSD layer records both want, so flip here — at
+	// the single boundary where the archive's convention is known. Reversing at
+	// every level (this function recurses for a group's children) keeps a
+	// group's contents in step with the group itself.
+	//
+	// Getting this wrong inverts the artwork and, because Photoshop encodes a
+	// group as a divider below its contents and a folder record above them,
+	// also makes every group unreadable rather than merely misplaced.
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
 	return out
 }
 

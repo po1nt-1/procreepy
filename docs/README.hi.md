@@ -38,24 +38,28 @@ procreepy **नहीं कर सकता**:
 my-art.procreate  →  procreepy  →  my-art.mp4
 ```
 
-एक folder अंदर, दो folder बाहर:
+एक folder अंदर; बाहर एक वीडियो ट्री और एक project archive:
 
 ```text
-input/                          output/
-├── Cat.procreate         →     ├── timelapses/
+input/                          input_procreepy/
+├── Cat.procreate         →     ├── mp4/
 ├── Landscape.procreate   →     │   ├── Cat.mp4
 └── Sketch.procreate      →     │   ├── Landscape.mp4
                                 │   └── Sketch.mp4
-                                └── projects/
-                                    ├── Cat.procreepy.procreate
-                                    ├── Landscape.procreepy.procreate
-                                    └── Sketch.procreepy.procreate
+                                └── procreate.zip   (हल्के किए गए project)
 ```
 
-- `timelapses/` में वीडियो हैं।
-- `projects/` में हर कलाकृति की एक कॉपी है **जिसमें से timelapse हटा दिया गया है** —
+- `mp4/` में वीडियो हैं।
+- `procreate.zip` में हर कलाकृति की एक कॉपी है **जिसमें से timelapse हटा दिया गया है** —
   आकार में काफ़ी छोटी, और आप इसे Procreate में वापस import कर सकते हैं। project का
-  बाकी सब कुछ byte-to-byte सुरक्षित रहता है।
+  बाकी सब कुछ byte-to-byte सुरक्षित रहता है। यह एक सामान्य zip है जिसके अंदर एक
+  `procreate/` folder होता है, iPad पर ले जाने के लिए तैयार; `--no-zip` देने पर
+  archive के बजाय वही `procreate/` folder डिस्क पर रहता है।
+- output folder का नाम input के नाम पर रखा जाता है (`input/` → `input_procreepy/`)
+  और जिस directory से आप command चलाते हैं उसी में बनता है। इसे खुद चुनने के लिए दूसरा
+  path दें।
+- हर output अपने स्रोत फ़ाइल की तारीख रखता है, इसलिए project को Procreate में फिर से
+  import करने पर आपकी gallery का क्रम नहीं बदलता।
 - `input/` ठीक वैसा ही रहता है जैसा था।
 
 ## इंस्टॉल
@@ -208,7 +212,7 @@ procreepy artwork.procreate videos/
 procreepy input/
 ```
 
-`input/` की हर `.procreate` फ़ाइल पढ़ता है और `output/` में लिखता है, जैसा
+`input/` की हर `.procreate` फ़ाइल पढ़ता है और `input_procreepy/` में लिखता है, जैसा
 [आपको क्या मिलेगा](#आपको-क्या-मिलेगा) में दिखाया गया है। destination खुद चुनने के
 लिए:
 
@@ -225,12 +229,17 @@ procreepy -r input/ output/
 चलते समय क्या होता है:
 
 - प्रगति हर फ़ाइल के लिए एक पंक्ति में बताई जाती है।
-- जिस फ़ाइल का timelapse कभी रिकॉर्ड नहीं हुआ, उसे **चेतावनी के साथ छोड़ दिया जाता
-  है**। उसके लिए कुछ नहीं लिखा जाता और काम चलता रहता है।
+- जिस फ़ाइल का timelapse कभी रिकॉर्ड नहीं हुआ, उसका हल्का project (और `--psd` के साथ
+  उसका PSD) फिर भी बनता है — केवल वीडियो छोड़ा जाता है, एक सूचना के साथ, और काम चलता
+  रहता है।
 - क्षतिग्रस्त फ़ाइल error के रूप में दर्ज होती है, बाकी फ़ाइलों पर काम जारी रहता है,
   और command exit code `1` के साथ ख़त्म होती है ताकि scripts इसे पकड़ सकें।
 - वही command दोबारा चलाने से पूरा हो चुका काम दोहराया नहीं जाता: जिन कलाकृतियों के
   परिणाम पहले से हैं, वे छोड़ दी जाती हैं। उन्हें फिर भी बनाना हो तो `-f` जोड़ें।
+- बिना किसी विफलता वाले run के बाद हल्के project `procreate.zip` में pack हो जाते हैं
+  और `procreate/` folder हटा दिया जाता है। जिस run में कोई भी विफलता हो, वह folder को
+  बिना pack किए छोड़ देता है ताकि आप उसे जाँच सकें और काम आगे बढ़ा सकें। `--no-zip`
+  हमेशा folder रखता है।
 
 ## बदलने से पहले फ़ाइल जाँचें
 
@@ -278,11 +287,17 @@ Photoshop फ़ाइल, जो Photoshop, Affinity Photo, GIMP वगैर�
 `--psd` **सिर्फ़ folder input के साथ** काम करता है। एक अकेली फ़ाइल देने पर यह रुक
 जाता है: `--psd needs a directory INPUT; it writes into OUTPUT/psd/`।
 
-PSD एक export है, सटीक प्रतिलिपि नहीं। यह layer tree और नाम, visibility, opacity,
-blend modes और ख़ुद छवि को रखता है; यह layer masks, clipping संबंध और editable text
-को **नहीं** रखता। अंतिम काम के लिए इस्तेमाल करने से पहले
+PSD एक export है, सटीक प्रतिलिपि नहीं। यह layer tree, group की संरचना और क्रम, नाम,
+visibility, opacity, blend modes और ख़ुद छवि को रखता है; यह layer masks, clipping
+संबंध और editable text को **नहीं** रखता। अंतिम काम के लिए इस्तेमाल करने से पहले
 [PSD क्या रखता है और क्या खोता है](usage.md#export-a-psd) पढ़ें। master copy के रूप
 में `.procreate` फ़ाइल ही रखें।
+
+PSD में एक छोटी preview छवि भी embed रहती है, इसलिए इसे पढ़ने वाले apps (Photoshop,
+Affinity, GIMP) एक thumbnail दिखाते हैं। पर यह अपने आप Windows Explorer से thumbnail
+नहीं बनवाता: Explorer को `.psd` के लिए एक registered thumbnail handler चाहिए, जो
+Windows साथ नहीं देता (Photoshop या SageThumbs जैसा pack उसे देता है), और
+`.procreate` के लिए तो कोई है ही नहीं।
 
 ## आपकी फ़ाइलों का क्या होता है
 
@@ -294,8 +309,13 @@ blend modes और ख़ुद छवि को रखता है; यह lay
 - **Folder वाले run हर कलाकृति के लिए एक सेट के रूप में प्रकाशित होते हैं।** किसी एक
   कलाकृति का वीडियो, हल्का project और PSD साथ-साथ आते हैं या आते ही नहीं — आपको
   project के बिना वीडियो कभी नहीं मिलेगा।
-- **दोबारा चलाना सुरक्षित है।** पूरी हो चुकी कलाकृतियाँ छोड़ दी जाती हैं। किसी रुके
-  हुए run से अधूरा छूटा सेट पूरा दोबारा बनाया जाता है। `-f` सब कुछ दोबारा बनाता है।
+- **तारीख़ें साथ चलती हैं।** हर output — वीडियो, हल्का project और PSD — पर उस
+  `.procreate` की modification तारीख़ पड़ती है जिससे वह बना (और Windows पर creation
+  तारीख़ भी), इसलिए Procreate में वापस import किया गया project gallery में अपनी जगह
+  बनाए रखता है।
+- **दोबारा चलाना सुरक्षित है।** पूरी हो चुकी कलाकृतियाँ छोड़ दी जाती हैं — चाहे project
+  अब भी एक folder हों या `procreate.zip` में pack हो चुके हों। किसी रुके हुए run से
+  अधूरा छूटा सेट पूरा दोबारा बनाया जाता है। `-f` सब कुछ दोबारा बनाता है।
 - **एक फ़ाइल बदलने पर destination बदल दिया जाता है** (अगर मौजूद हो), नया वीडियो पूरा
   लिखने के बाद।
 - **बड़ी फ़ाइलों को अस्थायी जगह चाहिए।** बड़े timelapse एक अस्थायी फ़ाइल के ज़रिये
@@ -326,7 +346,7 @@ procreepy [options] INPUT [OUTPUT]
 `INPUT` एक `.procreate` फ़ाइल, उनका folder, या standard input के लिए `-` है।
 `OUTPUT` एक फ़ाइल नाम, folder, या standard output के लिए `-` है। अकेली फ़ाइल के लिए
 `OUTPUT` छोड़ देने का मतलब है वीडियो standard output पर जाएगा; folder के लिए
-डिफ़ॉल्ट `output/` है।
+डिफ़ॉल्ट मौजूदा directory में `<INPUT>_procreepy/` है।
 
 | विकल्प | क्या करता है | कहाँ लागू |
 |---|---|---|
@@ -337,6 +357,7 @@ procreepy [options] INPUT [OUTPUT]
 | `-r`, `--recursive` | sub-folders भी process करें | सिर्फ़ folder input |
 | `-f`, `--force` | पहले से मौजूद परिणाम overwrite करें | सिर्फ़ folder input |
 | `--psd` | हर कलाकृति का layered PSD भी export करें | सिर्फ़ folder input |
+| `--no-zip` | project को `procreate.zip` में pack करने के बजाय `procreate/` folder रहने दें | सिर्फ़ folder input |
 | `--strict` | segment numbering के अंतराल को चेतावनी नहीं, error मानें | फ़ाइल या folder |
 | `--tmpdir DIR` | अस्थायी फ़ाइलें कहाँ रखें | हमेशा |
 | `-q`, `--quiet` | सिर्फ़ चेतावनियाँ और errors छापें | हमेशा |

@@ -21,8 +21,8 @@ func TestPlanTwoOutputTrees(t *testing.T) {
 		t.Fatalf("planned %d items, want 2", len(items))
 	}
 	want := []struct{ timelapse, project string }{
-		{"out/timelapses/Cat.mp4", "out/projects/Cat.procreepy.procreate"},
-		{"out/timelapses/House.mp4", "out/projects/House.procreepy.procreate"},
+		{"out/" + TimelapseDir + "/Cat.mp4", "out/" + ProjectDir + "/Cat.procreepy.procreate"},
+		{"out/" + TimelapseDir + "/House.mp4", "out/" + ProjectDir + "/House.procreepy.procreate"},
 	}
 	for i, w := range want {
 		if got := slash(items[i].Targets.Timelapse); got != w.timelapse {
@@ -44,13 +44,13 @@ func TestPlanRecursiveMirrorsOneRelativePath(t *testing.T) {
 		t.Fatalf("planned %d items", len(items))
 	}
 	tg := items[0].Targets
-	if got, want := slash(tg.Timelapse), "out/timelapses/2025/Cat.mp4"; got != want {
+	if got, want := slash(tg.Timelapse), "out/"+TimelapseDir+"/2025/Cat.mp4"; got != want {
 		t.Errorf("timelapse = %q, want %q", got, want)
 	}
-	if got, want := slash(tg.Project), "out/projects/2025/Cat.procreepy.procreate"; got != want {
+	if got, want := slash(tg.Project), "out/"+ProjectDir+"/2025/Cat.procreepy.procreate"; got != want {
 		t.Errorf("project = %q, want %q", got, want)
 	}
-	if got, want := slash(tg.PSD), "out/psd/2025/Cat.psd"; got != want {
+	if got, want := slash(tg.PSD), "out/"+PSDDir+"/2025/Cat.psd"; got != want {
 		t.Errorf("psd = %q, want %q", got, want)
 	}
 }
@@ -60,7 +60,7 @@ func TestPlanRecursiveMirrorsOneRelativePath(t *testing.T) {
 func TestPlanFlatIgnoresSubdirectories(t *testing.T) {
 	roots := NewRoots("out", false)
 	items := Plan([]string{filepath.Join("in", "Cat.procreate")}, "in", roots, false)
-	if got, want := slash(items[0].Targets.Timelapse), "out/timelapses/Cat.mp4"; got != want {
+	if got, want := slash(items[0].Targets.Timelapse), "out/"+TimelapseDir+"/Cat.mp4"; got != want {
 		t.Errorf("timelapse = %q, want %q", got, want)
 	}
 }
@@ -153,10 +153,10 @@ func TestPlanSameNameDifferentDirectories(t *testing.T) {
 		filepath.Join("in", "2024", "Cat.procreate"),
 		filepath.Join("in", "2025", "Cat.procreate"),
 	}, "in", roots, true)
-	if got, want := slash(items[0].Targets.Timelapse), "out/timelapses/2024/Cat.mp4"; got != want {
+	if got, want := slash(items[0].Targets.Timelapse), "out/"+TimelapseDir+"/2024/Cat.mp4"; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
-	if got, want := slash(items[1].Targets.Timelapse), "out/timelapses/2025/Cat.mp4"; got != want {
+	if got, want := slash(items[1].Targets.Timelapse), "out/"+TimelapseDir+"/2025/Cat.mp4"; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
@@ -198,5 +198,29 @@ func TestStem(t *testing.T) {
 		if got := stem(in); got != want {
 			t.Errorf("stem(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// TestDefaultOutputDir: the default OUTPUT is named after its input, so
+// converting several directories in a row keeps their results apart without an
+// explicit OUTPUT every time.
+func TestDefaultOutputDir(t *testing.T) {
+	cases := map[string]string{
+		"input":           "input" + OutputSuffix,
+		"input/":          "input" + OutputSuffix,
+		"/tmp/art/batch1": "batch1" + OutputSuffix,
+		"../art":          "art" + OutputSuffix,
+		// A volume root yields no usable name.
+		"/": fallbackOutputDir,
+	}
+	for in, want := range cases {
+		if got := DefaultOutputDir(in); got != want {
+			t.Errorf("DefaultOutputDir(%q) = %q, want %q", in, got, want)
+		}
+	}
+	// "." and ".." must resolve to the directory's real name rather than to
+	// themselves, which would produce "._procreepy".
+	if got := DefaultOutputDir("."); got == "."+OutputSuffix || got == OutputSuffix {
+		t.Errorf("DefaultOutputDir(\".\") = %q, want the current directory's name", got)
 	}
 }
