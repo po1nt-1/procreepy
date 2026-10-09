@@ -7,7 +7,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"syscall"
 
 	"procreepy/internal/mp4"
 	"procreepy/internal/procreate"
@@ -111,7 +110,7 @@ func Verify(ctx context.Context, log *slog.Logger, inputArg string, cfg Config) 
 func PrintReport(s string) error {
 	if _, err := os.Stdout.WriteString(s); err != nil {
 		devnullStdout()
-		if errIs(err, syscall.EPIPE) {
+		if isBrokenPipe(err) {
 			return &WriteError{Msg: "failed to write to stdout: broken pipe"}
 		}
 		return &WriteError{Msg: "failed to write the output: " + strerror(err)}

@@ -156,7 +156,7 @@ func writeOut(ctx context.Context, arch *procreate.Archive, segs []procreate.Seg
 		signal.Ignore(syscall.SIGPIPE)
 		if _, err := emit(ctx, arch, segs, mg, os.Stdout); err != nil {
 			devnullStdout()
-			if errIs(err, syscall.EPIPE) {
+			if isBrokenPipe(err) {
 				return "", &WriteError{Msg: "failed to write to stdout: broken pipe"}
 			}
 			return "", &WriteError{Msg: "failed to write the output: " + strerror(err)}
@@ -210,7 +210,7 @@ func classifyWrite(ctx context.Context, err error) error {
 	if ctxErr(ctx) != nil {
 		return ctx.Err()
 	}
-	if errIs(err, syscall.EPIPE) {
+	if isBrokenPipe(err) {
 		return &WriteError{Msg: "failed to write to stdout: broken pipe"}
 	}
 	return &WriteError{Msg: "failed to write the output: " + strerror(err)}

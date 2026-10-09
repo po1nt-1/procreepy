@@ -16,6 +16,10 @@ func isTTY(fd int) bool {
 	return errno == 0
 }
 
+// isBrokenPipe reports whether err means the reader on the other end went
+// away. Unix raises EPIPE; see io_windows.go for the two codes Win32 uses.
+func isBrokenPipe(err error) bool { return errIs(err, syscall.EPIPE) }
+
 // devnullStdout points fd 1 at /dev/null so the shell does not complain
 // about the dying writer after a broken pipe.
 func devnullStdout() {
