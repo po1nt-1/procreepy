@@ -48,6 +48,12 @@ kos:
     build: procreepy
     # Minimal, non-root runtime base. :nonroot runs as uid 65532.
     base_image: gcr.io/distroless/static:nonroot
+    # ko zeroes the image creation time by default (epoch 0) for byte-for-byte
+    # reproducible builds, which otherwise leaves registries showing the image
+    # as created on 1970-01-01. Pin it to the tagged commit's timestamp instead:
+    # still deterministic for a given commit, but a real, meaningful date. The
+    # publish always runs on a tag pipeline, where .CommitTimestamp resolves.
+    creation_time: "{{ .CommitTimestamp }}"
     # CI passes CI_REGISTRY_IMAGE = registry.gitlab.com/<group>/<project>.
     repositories:
       - "{{ .Env.CI_REGISTRY_IMAGE }}"
