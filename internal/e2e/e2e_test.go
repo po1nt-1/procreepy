@@ -318,6 +318,22 @@ func strayWarn(member string) string {
 // that name a file or directory in the filesystem — never to a whole message.
 func fsPath(p string) string { return filepath.FromSlash(p) }
 
+// caseSensitiveFS reports whether dir distinguishes names that differ only in
+// case. Windows and the default macOS volume fold case, so a pair like
+// `A.procreate`/`a.procreate` is one single file there and any test built on
+// the pair is testing something that cannot exist. Probed rather than derived
+// from GOOS: case folding is a property of the mount, not of the OS.
+func caseSensitiveFS(t *testing.T, dir string) bool {
+	t.Helper()
+	probe := filepath.Join(dir, "CaseProbe")
+	if err := os.WriteFile(probe, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(probe)
+	_, err := os.Stat(filepath.Join(dir, "caseprobe"))
+	return os.IsNotExist(err)
+}
+
 // withSlash mirrors batch.withSlash: a directory spelled with a trailing
 // separator is kept as the caller gave it, otherwise one is appended.
 func withSlash(dir string) string {

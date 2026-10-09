@@ -50,16 +50,39 @@ func writeTree(t *testing.T, root string, files map[string][]byte) {
 	}
 }
 
+// caseSensitiveFS reports whether dir distinguishes names that differ only in
+// case. Windows and the default macOS volume fold case. Probed rather than
+// derived from GOOS: case folding is a property of the mount, not of the OS.
+func caseSensitiveFS(t *testing.T, dir string) bool {
+	t.Helper()
+	probe := filepath.Join(dir, "CaseProbe")
+	if err := os.WriteFile(probe, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(probe)
+	_, err := os.Stat(filepath.Join(dir, "caseprobe"))
+	return os.IsNotExist(err)
+}
+
 func TestDiscoverFlat(t *testing.T) {
 	root := t.TempDir()
-	writeTree(t, root, map[string][]byte{
+	files := map[string][]byte{
 		"b.procreate":     goodArchBytes(t),
 		"a.procreate":     goodArchBytes(t),
-		"A.PROCREATE":     goodArchBytes(t),
 		"z.txt":           []byte("nope"),
 		".h.procreate":    goodArchBytes(t),
 		"sub/x.procreate": goodArchBytes(t), // in a subdir: invisible without -r
-	})
+	}
+	want := []string{"a.procreate", "b.procreate", "lnk.procreate"}
+	// The upper-case twin exercises byte-order sorting, but it can only be a
+	// second file where the filesystem keeps the two apart; where case folds,
+	// writing it would land on a.procreate and leave the expected set at the
+	// mercy of map iteration order.
+	if caseSensitiveFS(t, root) {
+		files["A.PROCREATE"] = goodArchBytes(t)
+		want = append([]string{"A.PROCREATE"}, want...)
+	}
+	writeTree(t, root, files)
 	if err := os.Symlink(filepath.Join(root, "a.procreate"), filepath.Join(root, "lnk.procreate")); err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +94,6 @@ func TestDiscoverFlat(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"A.PROCREATE", "a.procreate", "b.procreate", "lnk.procreate"}
 	for i, w := range want {
 		if i >= len(got) || filepath.Base(got[i]) != w {
 			t.Fatalf("got %v, want %v", got, want)

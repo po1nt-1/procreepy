@@ -84,7 +84,10 @@ func TestConvertToDirectory(t *testing.T) {
 			if err := os.MkdirAll(filepath.Join(dir, "out"), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			wantErr := chattyBlock("in.procreate", 3, "out/in.mp4", 6.0)
+			// The binary joins the directory with the derived name through
+			// filepath.Join, so the reported path carries the platform
+			// separator: `out\in.mp4` on Windows.
+			wantErr := chattyBlock("in.procreate", 3, fsPath("out/in.mp4"), 6.0)
 			check(t, run(t, dir, nil, "in.procreate", out), 0, "", wantErr)
 			eqBytes(t, "out/in.mp4", readAll(t, filepath.Join(dir, "out", "in.mp4")),
 				expectedMP4(t, segN(1), segN(2), segN(3)))
@@ -260,6 +263,14 @@ func TestTmpdir(t *testing.T) {
 }
 
 func TestDevNull(t *testing.T) {
+	if os.PathSeparator == '\\' {
+		// There is no /dev/null on Windows: the path resolves to C:\dev, a
+		// directory that does not exist, so the run dies at output validation
+		// with exit 9. The platform's bit bucket is the NUL device, which the
+		// resolver reaches through OutDevice rather than the OutFile path this
+		// test pins, so it is a different contract and not covered here.
+		t.Skip("windows: /dev/null does not exist")
+	}
 	dir := t.TempDir()
 	writeArchive(t, dir, "in.procreate", stdThree())
 	wantErr := chattyBlock("in.procreate", 3, "/dev/null", 6.0)

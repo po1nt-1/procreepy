@@ -325,6 +325,12 @@ func TestBatchPreservesMtime(t *testing.T) {
 // ReadDir sorts "A.procreate" before "a.procreate".
 func TestBatchCaseCollision(t *testing.T) {
 	dir := t.TempDir()
+	if !caseSensitiveFS(t, dir) {
+		// The premise is two inputs differing only in case. Where the
+		// filesystem folds case the second write lands on the first file, so
+		// the batch sees one input and there is no collision to resolve.
+		t.Skip("case-folding filesystem: A.procreate and a.procreate cannot coexist")
+	}
 	writeArchive(t, filepath.Join(dir, "input"), "A.procreate", stdThree())
 	writeArchive(t, filepath.Join(dir, "input"), "a.procreate", stdThree())
 	wantErr := batchStart(2, "input", "input_procreepy/mp4", "input_procreepy/procreate") +
