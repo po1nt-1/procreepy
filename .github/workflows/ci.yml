@@ -245,9 +245,15 @@ jobs:
   # stage: release — GitLab's semantic-release tagger (main only) is the
   # single tag source for both hosts and is deliberately not mirrored; this
   # job publishes that tag on this host.
+  # The gate is everything the release promises: the binaries and their
+  # checksum manifest (dist, which pulls the whole build matrix) and the
+  # glibc==musl reproducibility proof. Gating on test alone published v0.4.0
+  # while build, dist and all three repro jobs sat skipped behind a red
+  # test:windows, so the invariant AGENTS.md calls non-negotiable was never
+  # checked for that tag.
   goreleaser:
     if: github.ref_type == 'tag'
-    needs: test
+    needs: [test, dist, repro-compare]
     runs-on: ubuntu-latest
     permissions:
       contents: write

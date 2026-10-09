@@ -159,14 +159,17 @@ Cobertura report, SAST, plus a Windows smoke job — build, vet and test with th
 same hermetic flags against a real windows/amd64 binary; GitHub `test:windows`
 runs natively on `windows-latest`, GitLab `test:windows` runs the same suite
 under Wine because the project has Linux runners only — see
-`ci/windows-wine/README.md`; it is `allow_failure: true` and gated to
-Windows-relevant changes),
+`ci/windows-wine/README.md`; the Wine job is `allow_failure: true` and gated to
+Windows-relevant changes, while the native GitHub job runs in every pipeline
+and hard-gates `build`),
 build (`make release` x matrix: linux amd64/arm64/arm, windows amd64/arm64,
 darwin amd64/arm64; normalized reproducible tarballs), verify (SHA256SUMS
 manifest + `make repro` on glibc vs musl, bit-for-bit proof — both legs must be
 given the same `VERSION`, or the stamp alone makes them differ), release
 (GitLab-only semantic-release tagger on main; `goreleaser release` per tag
-on both hosts). GitHub encodes the stage order with `needs:` (no stages);
+on both hosts, gated on `dist` and `repro:compare` so a tag cannot publish
+binaries whose matrix build or glibc==musl proof never ran).
+GitHub encodes the stage order with `needs:` (no stages);
 its SAST is CodeQL, coverage ships as an artifact, and there is no native
 secret-detection job. The GitLab-only tagger is the single source of
 version tags feeding both hosts, so it must not be mirrored. Keep the two

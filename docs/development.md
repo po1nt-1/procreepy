@@ -114,8 +114,11 @@ TMPDIR=/var/tmp make test
 (`CGO_ENABLED=0`), but it works if you have one.
 
 A few tests are skipped by platform, deliberately: the interrupt test needs
-POSIX signals, and the unwritable-directory test needs Unix permission bits —
-neither exists on Windows.
+POSIX signals, the unwritable-directory test needs Unix permission bits, and
+the `/dev/null` test needs a Unix device path — none of the three exists on
+Windows. Two more need a case-sensitive filesystem, because their premise is a
+pair of names differing only in case; they probe the mount and skip where it
+folds case, as Windows and the default macOS volume do.
 
 ## Coverage
 
@@ -177,7 +180,7 @@ Stages:
 | `build` | the seven-target release matrix |
 | `verify` | `dist` (aggregate + `SHA256SUMS`), `repro:glibc`, `repro:musl`, `repro:compare` |
 | `secret-detection` | the GitLab template |
-| `release` | `release` (tagging) and `goreleaser` (publishing, tag pipelines only) |
+| `release` | `release` (tagging) and `goreleaser` (publishing, tag pipelines only; needs `dist` and `repro:compare`, so nothing publishes unproven) |
 
 Releases are cut from a `v*` tag. The GitLab tag pipeline publishes the GitLab
 release, the archives and the container image; the GitHub workflow publishes the
