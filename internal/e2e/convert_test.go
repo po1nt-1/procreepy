@@ -184,6 +184,15 @@ func TestConvertIgnoresStrayMP4(t *testing.T) {
 }
 
 func TestStdin(t *testing.T) {
+	if testkit.UnderWine() {
+		// Every subtest here pipes an archive into the process. Wine does not
+		// hand a piped stdin to the Windows program the way Windows does, so
+		// the binary cannot open it at all and reports "cannot buffer <stdin>:
+		// Path not found." before any of this is exercised. Native Windows
+		// runs these four subtests and passes them (GitHub's test:windows is
+		// the authority), so this is a Wine gap, not a product defect.
+		t.Skip("wine: a piped stdin is not reachable from the Windows process")
+	}
 	arc := testkit.ArchiveBytes(stdThree(), false)
 	t.Run("to_file", func(t *testing.T) {
 		dir := t.TempDir()
@@ -280,6 +289,13 @@ func TestDevNull(t *testing.T) {
 func TestDevFull(t *testing.T) {
 	if _, err := os.Stat("/dev/full"); err != nil {
 		t.Skip("/dev/full not present")
+	}
+	if testkit.UnderWine() {
+		// Native Windows has no /dev/full, so this test does not run there at
+		// all. Under Wine the host's device is reachable through drive Z: and
+		// the write does fail, but Wine renders ENOSPC as "Disk full." rather
+		// than the "No space left on device" the assertion below expects.
+		t.Skip("wine: ENOSPC is reported as \"Disk full.\"")
 	}
 	dir := t.TempDir()
 	writeArchive(t, dir, "in.procreate", stdThree())
@@ -407,6 +423,15 @@ func TestSameFile(t *testing.T) {
 			actionErr("OUTPUT is the same file as INPUT: "+abs))
 	})
 	t.Run("symlink", func(t *testing.T) {
+		if testkit.UnderWine() {
+			// Native Windows runs this subtest and passes it (GitHub's runner
+			// may create symlinks; without that privilege the os.Symlink
+			// below skips it). Under Wine the link is created on the host
+			// filesystem through drive Z: and succeeds, but Wine does not then
+			// resolve it to the same file the way Windows would, so the
+			// sameness check never fires.
+			t.Skip("wine: host symlinks are created but not resolved like Windows")
+		}
 		dir := t.TempDir()
 		writeArchive(t, dir, "in.procreate", stdThree())
 		link := filepath.Join(dir, "link.procreate")

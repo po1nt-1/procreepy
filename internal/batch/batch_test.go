@@ -73,7 +73,7 @@ func TestDiscoverFlat(t *testing.T) {
 		".h.procreate":    goodArchBytes(t),
 		"sub/x.procreate": goodArchBytes(t), // in a subdir: invisible without -r
 	}
-	want := []string{"a.procreate", "b.procreate", "lnk.procreate"}
+	want := []string{"a.procreate", "b.procreate"}
 	// The upper-case twin exercises byte-order sorting, but it can only be a
 	// second file where the filesystem keeps the two apart; where case folds,
 	// writing it would land on a.procreate and leave the expected set at the
@@ -83,13 +83,34 @@ func TestDiscoverFlat(t *testing.T) {
 		want = append([]string{"A.PROCREATE"}, want...)
 	}
 	writeTree(t, root, files)
+	assertDiscovered(t, root, want)
+}
+
+// TestDiscoverSymlinks: a link to a project is discovered like the file
+// itself, a dangling one is skipped.
+func TestDiscoverSymlinks(t *testing.T) {
+	if testkit.UnderWine() {
+		// Native Windows runs this and passes (GitHub's test:windows). Under
+		// Wine the links are created on the host filesystem through drive Z:,
+		// but the Windows process does not resolve them to their targets, so
+		// the live link is dropped as if it dangled.
+		t.Skip("wine: host symlinks are created but not resolved like Windows")
+	}
+	root := t.TempDir()
+	writeTree(t, root, map[string][]byte{"a.procreate": goodArchBytes(t)})
 	if err := os.Symlink(filepath.Join(root, "a.procreate"), filepath.Join(root, "lnk.procreate")); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(filepath.Join(root, "gone.procreate"), filepath.Join(root, "broken.procreate")); err != nil {
 		t.Fatal(err)
 	}
+	assertDiscovered(t, root, []string{"a.procreate", "lnk.procreate"})
+}
 
+// assertDiscovered runs a flat Discover on root and compares the base names,
+// in order, against want.
+func assertDiscovered(t *testing.T, root string, want []string) {
+	t.Helper()
 	got, err := Discover(root, false)
 	if err != nil {
 		t.Fatal(err)

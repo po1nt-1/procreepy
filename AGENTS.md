@@ -159,9 +159,11 @@ Cobertura report, SAST, plus a Windows smoke job — build, vet and test with th
 same hermetic flags against a real windows/amd64 binary; GitHub `test:windows`
 runs natively on `windows-latest`, GitLab `test:windows` runs the same suite
 under Wine because the project has Linux runners only — see
-`ci/windows-wine/README.md`; the Wine job is `allow_failure: true` and gated to
-Windows-relevant changes, while the native GitHub job runs in every pipeline
-and hard-gates `build`),
+`ci/windows-wine/README.md`; the Wine job is gated to Windows-relevant changes
+but blocking when it runs, as is the native GitHub job, which runs in every
+pipeline — both hard-gate `build`. Tests whose premise Wine cannot reproduce
+skip on `PROCREEPY_WINE` (see `testkit.UnderWine`) instead of having
+their assertions weakened for every host),
 build (`make release` x matrix: linux amd64/arm64/arm, windows amd64/arm64,
 darwin amd64/arm64; normalized reproducible tarballs), verify (SHA256SUMS
 manifest + `make repro` on glibc vs musl, bit-for-bit proof — both legs must be
@@ -169,6 +171,10 @@ given the same `VERSION`, or the stamp alone makes them differ), release
 (GitLab-only semantic-release tagger on main; `goreleaser release` per tag
 on both hosts, gated on `dist` and `repro:compare` so a tag cannot publish
 binaries whose matrix build or glibc==musl proof never ran).
+GitLab's `workflow:` gives a branch with an open MR a single MR pipeline that
+runs the whole gate; a new job that must run everywhere extends
+`.every-pipeline`, since a job without `rules:` never joins an MR pipeline
+(the SAST/secret templates need `AST_ENABLE_MR_PIPELINES`, set globally).
 GitHub encodes the stage order with `needs:` (no stages);
 its SAST is CodeQL, coverage ships as an artifact, and there is no native
 secret-detection job. The GitLab-only tagger is the single source of
@@ -182,3 +188,31 @@ the Makefile enforces the same flags locally.
 - Never commit, push, or create tags unless explicitly asked.
 - `docs/` may contain temporary working files; anything marked "temporary"
   gets deleted when its work is finished, not committed long-term.
+
+### Commit messages
+
+Short. A one-line subject is the default: imperative, no trailing period, under
+~70 characters. Add a body only when the *why* would otherwise be lost — a
+constraint that looks arbitrary, the defect being fixed, a decision someone
+would otherwise undo. Two or three lines is already a long body here. Never
+restate what the diff shows, and never list the files touched.
+
+One topic per commit. If the subject needs an "and", it is two commits.
+
+### Versioning — do not trip semantic-release
+
+`.releaserc.json` runs semantic-release on `main` (GitLab only) with the
+`conventionalcommits` preset, and that job is the single source of version tags
+for both hosts. Under that preset a `feat:` subject cuts a minor tag, `fix:` and
+`perf:` cut a patch tag, and a `!` marker or a `BREAKING CHANGE:` footer cuts a
+major one — automatically, on push — and the new tag immediately starts the
+`goreleaser` publish pipeline.
+
+So write **prose subjects, never Conventional Commit prefixes**: "Stamp the
+image with the commit timestamp", not "fix: image creation time". Releases are
+tagged by hand (`v0.3.0` was an annotated tag pushed by the maintainer). A
+prefix slipped into a routine commit publishes a release nobody asked for.
+
+The cost is that prose subjects fall into the "Other" group of the goreleaser
+changelog, which groups on those same prefixes. That is accepted. Use a prefix
+only when a release is genuinely intended.
