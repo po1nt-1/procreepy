@@ -141,12 +141,20 @@ tar -xzf procreepy_*_linux_amd64.tar.gz
 Silicon 的 Mac 上会自动选中 arm64 变体。
 
 ```bash
+# Docker
 docker run --rm -v "$PWD":/data -w /data \
+  registry.gitlab.com/po1nt-1/procreepy:latest artwork.procreate artwork.mp4
+
+# Podman（rootless，Linux）：映射你的用户，并用 :Z 重新标记挂载
+podman run --rm --userns=keep-id --user "$(id -u):$(id -g)" \
+  -v "$PWD":/data:Z -w /data \
   registry.gitlab.com/po1nt-1/procreepy:latest artwork.procreate artwork.mp4
 ```
 
-把 `docker` 原样换成 `podman` 即可。要固定版本，用 `:0.3.0` 代替 `:latest`（镜像
-标签不带 `v` 前缀）。文件归属等细节见 [usage.md](usage.md#container-usage)。
+两个引擎的参数不能一一照搬：rootless Podman 需要 `--userns=keep-id`、`--user`，
+在启用 SELinux 的主机上还需要 `:Z` 挂载，否则运行会因输出目录权限而失败。要固定
+版本，用 `:0.3.0` 代替 `:latest`（镜像标签不带 `v` 前缀）。文件归属、SELinux 等
+细节见 [usage.md](usage.md#container-usage)。
 
 ### 从源码构建
 
