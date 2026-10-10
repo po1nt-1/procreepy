@@ -11,6 +11,21 @@ stages:
 - secret-detection
 - release
 
+# One pipeline per change, and the full gate in it. Without this, a push to a
+# branch with an open MR starts a branch pipeline and an MR pipeline side by
+# side, and every job without rules: (test, build, verify) runs only in the
+# branch one — the MR's own pipeline then holds little more than test:windows,
+# so its status, the coverage annotations in the diff and the SAST widget all
+# miss the real gate. MRs get an MR pipeline, a branch with an open MR gets no
+# second one, and pushes without an MR, main and tags work as before.
+workflow:
+  rules:
+  - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  - if: '$CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS'
+    when: never
+  - if: '$CI_COMMIT_BRANCH'
+  - if: '$CI_COMMIT_TAG'
+
 include:
 - template: Security/SAST.gitlab-ci.yml
 - template: Security/Secret-Detection.gitlab-ci.yml
@@ -18,6 +33,10 @@ include:
 variables:
   GO_IMAGE: golang:1.27.1
   SECRET_DETECTION_ENABLED: 'true'
+  # The SAST and secret-detection templates join MR pipelines only with this
+  # set; otherwise they wait for a branch pipeline, which workflow: above no
+  # longer starts while an MR is open.
+  AST_ENABLE_MR_PIPELINES: 'true'
   # Reproducibility: pin the toolchain and forbid any network/toolchain drift.
   # The module has zero dependencies, so GOPROXY=off must always hold.
   GOTOOLCHAIN: "local"
@@ -31,6 +50,13 @@ sast:
 
 secret_detection:
   stage: secret-detection
+
+# Jobs that belong in every pipeline workflow: lets through. A job without
+# rules: falls back to the legacy only/except default, which never puts it in
+# an MR pipeline, so these say "always" explicitly.
+.every-pipeline:
+  rules:
+  - when: on_success
 
 # ---------------------------------------------------------------------------
 # Container images used by later stages, built and pushed to the project
@@ -80,6 +106,7 @@ build:winci-image:
         IMAGE_NAME: $CI_REGISTRY_IMAGE/winci:1.27.1
 
 test:
+  extends: .every-pipeline
   stage: test
   image: $GO_IMAGE
   script:
@@ -139,20 +166,26 @@ test:windows:
       - go.mod
       - Makefile
       - ci/windows-wine/**/*
-    # Anything else: still reachable, but only when someone asks for it.
-    # allow_failure (below) keeps this optional, so it never blocks a pipeline.
+    # Anything else (a docs- or CI-only commit): still reachable, but only when
+    # someone asks for it. This is the one rule that keeps allow_failure: a
+    # blocking manual job would park the pipeline waiting for a click nobody
+    # owes it. Every rule above runs automatically and now gates the pipeline.
     - when: manual
+      allow_failure: true
   script:
   - run-tests.sh
   timeout: 30m
-  # Wine is not a byte-perfect Windows; keep it non-blocking until proven
-  # stable, then drop this line so Windows regressions fail the pipeline.
-  allow_failure: true
+  # Blocking, like GitHub's native test:windows. Wine is not a byte-perfect
+  # Windows, so the handful of tests whose premise it cannot reproduce skip on
+  # PROCREEPY_WINE (exported by run-tests.sh) rather than having their
+  # assertions weakened for every host — see testkit.UnderWine. A
+  # failure here is therefore a real Windows regression, not Wine noise.
 
 # Release builds for the supported platforms. The code is pure Go with
 # per-OS shims (io_linux.go / io_darwin.go / io_windows.go), so all three
 # GOOS targets cross-compile with CGO_ENABLED=0.
 build:
+  extends: .every-pipeline
   stage: build
   image: $GO_IMAGE
   parallel:
@@ -172,6 +205,7 @@ build:
 
 # Aggregate every architecture into one dist/ tree with a checksum manifest.
 dist:
+  extends: .every-pipeline
   stage: verify
   image: $GO_IMAGE
   needs:
@@ -189,6 +223,7 @@ dist:
 # Reproducibility proof: the same sources built on two different base
 # images (glibc vs musl) must yield the identical linux/amd64 binary.
 .repro-build:
+  extends: .every-pipeline
   stage: verify
   variables:
     GOOS: linux
@@ -227,6 +262,7 @@ repro:musl:
     - repro-musl.sha256
 
 repro:compare:
+  extends: .every-pipeline
   stage: verify
   image: $GO_IMAGE
   needs:

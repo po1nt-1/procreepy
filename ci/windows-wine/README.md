@@ -61,10 +61,44 @@ commit:
 | branch or MR touching `**/*.go`, `go.mod`, `Makefile`, `ci/windows-wine/**` | runs |
 | anything else (docs, translations, unrelated CI edits) | optional **manual** job, never automatic |
 
-The job is `allow_failure: true` throughout, so neither the automatic nor the
-manual run can break a pipeline. Building the image itself is gated harder
-still: `build:winci-image` only fires when `ci/windows-wine/**` changes, so the
-multi-gigabyte build happens on image edits alone, not per commit.
+**Changing the run scripts needs a merge request, not a branch push.** The job
+calls `run-tests.sh` by bare name, so it runs the copy baked into the image
+(`COPY … /usr/local/bin/` in the Containerfile), not the one in the checkout.
+`build:winci-image` rebuilds that image on an MR touching `ci/windows-wine/**`
+(branch-scoped tag, which `test:windows` then consumes) or on the default
+branch (the stable tag) — a plain branch push matches neither. Push a script
+change as a branch and `test:windows` will run the *old* script and fail for a
+reason that is not in your diff.
+
+When the job runs automatically it is **blocking**: a failure fails the
+pipeline and `build` never starts, matching GitHub's native `test:windows`.
+Only the manual fallback in the last row keeps `allow_failure: true` — a
+blocking manual job would park the pipeline waiting for a click nobody owes it.
+
+That is safe because the tests Wine cannot faithfully reproduce skip
+themselves on `PROCREEPY_WINE=1`, which `run-tests.sh` exports (see
+`testkit.UnderWine`), rather than having their assertions weakened for every
+host. All of them pass on native Windows — GitHub's `test:windows` is the
+authority — so each skip is a Wine gap, not a product defect:
+
+| test | why Wine cannot run it |
+|---|---|
+| `TestStdin` (e2e) | a piped stdin is not reachable from the Windows process; the binary reports `cannot buffer <stdin>: Path not found.` |
+| `TestDevFull` (e2e) | `/dev/full` is reachable through drive `Z:`, but Wine renders ENOSPC as `Disk full.` instead of `No space left on device` |
+| `TestSameFile/symlink` (e2e) | Wine creates the host symlink through `Z:` but does not resolve it to the same file the way Windows does |
+| `TestDiscoverSymlinks` (batch) | same symlink gap: the live link is not resolved, so `Discover` drops it as if it dangled |
+
+A red Wine job therefore means a real Windows regression. Before adding
+another entry, check the same test on GitHub first: if it fails there too, it
+is a product defect and must be fixed, not skipped. Fix the environment rather
+than skipping when the gap is the image's, not Wine's: the image sets
+`LANG=C.UTF-8` because under the POSIX default Wine cannot map non-ASCII file
+names to the host, which made `TestSpacesAndUnicodePaths` fail with
+`File not found.`
+
+Building the image itself is gated harder still: `build:winci-image` only fires
+when `ci/windows-wine/**` changes, so the multi-gigabyte build happens on image
+edits alone, not per commit.
 
 ### Registry housekeeping
 

@@ -182,6 +182,14 @@ Stages:
 | `secret-detection` | the GitLab template |
 | `release` | `release` (tagging) and `goreleaser` (publishing, tag pipelines only; needs `dist` and `repro:compare`, so nothing publishes unproven) |
 
+A branch with an open merge request gets one pipeline, the MR pipeline, and it
+carries the whole gate: `test`, SAST, the build matrix, `verify` and secret
+detection, plus `test:windows` when the diff can affect Windows. Pushes to a
+branch without an MR, to `main` and tags run a branch or tag pipeline as usual.
+The `workflow:` block at the top of `.gitlab-ci.yml` encodes this; jobs that
+must run everywhere extend `.every-pipeline`, because a job without `rules:`
+never joins an MR pipeline.
+
 Releases are cut from a `v*` tag. The GitLab tag pipeline publishes the GitLab
 release, the archives and the container image; the GitHub workflow publishes the
 GitHub release for the same tag with `--skip=ko`, so the container image is
