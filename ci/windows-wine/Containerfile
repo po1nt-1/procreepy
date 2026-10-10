@@ -28,6 +28,13 @@ ENV DEBIAN_FRONTEND=noninteractive \
     # Silence Wine's fixme/err chatter so it never interleaves with the
     # byte-exact stdout/stderr the e2e tests assert on.
     WINEDEBUG=-all \
+    # Wine converts Windows (UTF-16) file names to host bytes through the host
+    # locale's charset. The base image sets none, so under the POSIX default
+    # any non-ASCII name (пельмеши.procreate, 日本語.procreate) cannot be
+    # created and the Windows program sees "File not found." C.UTF-8 is built
+    # into glibc, no locales package needed. Set before wineboot below so the
+    # prefix is initialized under the same locale every run uses.
+    LANG=C.UTF-8 \
     GOTOOLCHAIN=local \
     GOPROXY=off \
     GOFLAGS=-mod=readonly \

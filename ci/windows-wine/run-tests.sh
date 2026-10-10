@@ -28,6 +28,14 @@ fi
 # also runs — which is exactly what internal/e2e's TestMain relies on.
 export WINEPATH='Z:\opt\go-win\bin'
 
+# Tell the suite it is standing in for Windows rather than running on it. Wine
+# reaches the host filesystem through drive Z:, so Unix device paths and real
+# symlinks remain usable where native Windows has neither; the few tests whose
+# premise that breaks skip on this flag instead of loosening an assertion that
+# is right on every other host. Wine passes the environment through to the
+# Windows process, so os.Getenv sees it. See testkit.UnderWine.
+export PROCREEPY_WINE=1
+
 # Thin wrapper so the steps below read like the CI script.
 go() { wine /opt/go-win/bin/go.exe "$@"; }
 
