@@ -155,14 +155,22 @@ A container image is published for every release, for `linux/amd64` and
 automatically.
 
 ```bash
+# Docker
 docker run --rm -v "$PWD":/data -w /data \
+  registry.gitlab.com/po1nt-1/procreepy:latest artwork.procreate artwork.mp4
+
+# Podman (rootless, Linux): map your user and relabel the mount with :Z
+podman run --rm --userns=keep-id --user "$(id -u):$(id -g)" \
+  -v "$PWD":/data:Z -w /data \
   registry.gitlab.com/po1nt-1/procreepy:latest artwork.procreate artwork.mp4
 ```
 
-Replace `docker` with `podman` as-is. Pin a version with `:0.3.0` instead of
-`:latest` (image tags carry no `v` prefix). See
-[docs/usage.md](docs/usage.md#container-usage) for file ownership and other
-details.
+The two engines are not interchangeable flag-for-flag: rootless Podman needs
+`--userns=keep-id`, `--user` and — on an SELinux host — a `:Z` mount, or the run
+fails with a permission error on the output. Pin a version with `:0.3.0` instead
+of `:latest` (image tags carry no `v` prefix). See
+[docs/usage.md](docs/usage.md#container-usage) for file ownership, SELinux and
+other details.
 
 ### Build from source
 

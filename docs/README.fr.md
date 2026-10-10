@@ -160,14 +160,22 @@ Une image de conteneur est publiée à chaque release, pour `linux/amd64` et
 automatiquement.
 
 ```bash
+# Docker
 docker run --rm -v "$PWD":/data -w /data \
+  registry.gitlab.com/po1nt-1/procreepy:latest artwork.procreate artwork.mp4
+
+# Podman (rootless, Linux) : mappez l'utilisateur, réétiquetez avec :Z
+podman run --rm --userns=keep-id --user "$(id -u):$(id -g)" \
+  -v "$PWD":/data:Z -w /data \
   registry.gitlab.com/po1nt-1/procreepy:latest artwork.procreate artwork.mp4
 ```
 
-`podman` remplace `docker` à l'identique. Pour figer une version, utilisez
-`:0.3.0` au lieu de `:latest` (les tags d'image n'ont pas de préfixe `v`).
-Détails sur la propriété des fichiers et le reste dans
-[usage.md](usage.md#container-usage).
+Les deux moteurs ne sont pas interchangeables option pour option : Podman
+rootless exige `--userns=keep-id`, `--user` et — sur un hôte SELinux — un
+montage en `:Z`, sans quoi l'exécution échoue sur les droits du répertoire de
+sortie. Pour figer une version, utilisez `:0.3.0` au lieu de `:latest` (les tags
+d'image n'ont pas de préfixe `v`). Détails sur la propriété des fichiers,
+SELinux et le reste dans [usage.md](usage.md#container-usage).
 
 ### Compiler depuis les sources
 

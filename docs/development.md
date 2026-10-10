@@ -214,6 +214,35 @@ podman run --rm -v "$PWD":/src:Z procreepy-winci                      # faithful
 podman run --rm -v "$PWD":/src:Z procreepy-winci run-tests.hybrid.sh  # faster
 ```
 
+## The container smoke test
+
+The image is built daemonless with ko, so no pipeline job can start a container
+engine to try the result. The published image is therefore checked by hand on a
+Linux host after the tag pipeline finishes:
+
+```bash
+ci/container-smoke/run.sh                 # both engines if present, :latest
+ci/container-smoke/run.sh 0.3.0           # a specific tag (no `v` prefix)
+ENGINES=podman ci/container-smoke/run.sh  # just one engine
+```
+
+It covers a single-file conversion, a folder run (`mp4/` plus a
+`procreate.zip` that really contains the projects), stdin to stdout, that every
+artifact ends up owned by the invoking user, that nothing printed a permission
+error, and that the image creation date is a real date rather than ko's epoch
+default. Docker and rootless Podman are run with different flags on purpose —
+see [container usage](usage.md#container-usage).
+
+`--psd` is skipped unless you point it at real artworks, because the generated
+fixtures are segment-only archives with no silica document and a PSD export
+correctly fails on them:
+
+```bash
+PROCREATE_FIXTURE_DIR=/path/to/real/files ci/container-smoke/run.sh
+```
+
+The corpus is mounted read-only, so the originals cannot be touched.
+
 ## Documentation
 
 - [`README.md`](../README.md) is the canonical user document. The nine

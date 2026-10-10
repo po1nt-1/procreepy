@@ -18,6 +18,7 @@ do. Exit codes are listed in [usage.md](usage.md#exit-codes).
 - [Not enough temporary disk space](#not-enough-temporary-disk-space)
 - [The output file is open in another program](#the-output-file-is-open-in-another-program)
 - [The output directory is not writable](#the-output-directory-is-not-writable)
+- [Permission denied in a rootless Podman container](#permission-denied-in-a-rootless-podman-container)
 - [The folder run finished with warnings or errors](#the-folder-run-finished-with-warnings-or-errors)
 
 ## The command is not found
@@ -318,8 +319,50 @@ level=ERROR msg="output directory is not writable: /path/to/dir"
 it.
 
 **What to do** — choose a directory you own, or fix the permissions. In a
-container on a Linux host, add `--user "$(id -u):$(id -g)"` so the process runs
-as you — see [container usage](usage.md#container-usage).
+Docker container on a Linux host, add `--user "$(id -u):$(id -g)"` so the
+process runs as you. Under rootless Podman that flag alone is not enough — see
+[the next entry](#permission-denied-in-a-rootless-podman-container) and
+[container usage](usage.md#container-usage).
+
+## Permission denied in a rootless Podman container
+
+**Symptom** — a run under rootless Podman cannot write its output, even though
+the same `docker run` command works:
+
+```text
+level=ERROR msg="output directory is not writable: /data/output"
+```
+
+or a `permission denied` while creating a file on the mounted directory.
+
+**Cause** — Podman is not a drop-in `docker` alias on a rootless Linux host.
+Two things trip it:
+
+- **User namespace.** Without `--userns=keep-id` the container's uid 65532 is
+  mapped through your subuid range to an unrelated host uid, which does not own
+  the directory you mounted.
+- **SELinux.** On Fedora, RHEL, CentOS and openSUSE the bind mount is not
+  relabeled by default, so SELinux denies the container access to it.
+
+**What to run** — confirm it is the mapping and not the directory by checking
+you own it on the host:
+
+```bash
+ls -ld .            # should show your user and group
+```
+
+**What to do** — pass the user mapping and relabel the mount:
+
+```bash
+podman run --rm --userns=keep-id --user "$(id -u):$(id -g)" \
+  -v "$PWD":/data:Z -w /data \
+  registry.gitlab.com/po1nt-1/procreepy:latest input/ output/
+```
+
+Drop `:Z` on a host without SELinux. The full explanation of each flag is in
+[container usage](usage.md#podman-rootless). Note there is no shell in the
+image, so `--entrypoint /bin/sh` is not a way to diagnose this — it fails with
+*no such file or directory*.
 
 ## The folder run finished with warnings or errors
 

@@ -157,13 +157,21 @@ tar -xzf procreepy_*_linux_amd64.tar.gz
 `linux/arm64`. На Mac с Apple Silicon вариант arm64 выбирается автоматически.
 
 ```bash
+# Docker
 docker run --rm -v "$PWD":/data -w /data \
+  registry.gitlab.com/po1nt-1/procreepy:latest artwork.procreate artwork.mp4
+
+# Podman (rootless, Linux): сопоставьте пользователя и пометьте том как :Z
+podman run --rm --userns=keep-id --user "$(id -u):$(id -g)" \
+  -v "$PWD":/data:Z -w /data \
   registry.gitlab.com/po1nt-1/procreepy:latest artwork.procreate artwork.mp4
 ```
 
-`podman` подставляется вместо `docker` без изменений. Зафиксировать версию:
-`:0.3.0` вместо `:latest` (в тегах образа нет префикса `v`). Подробности о
-владельце файлов и прочем — в [usage.md](usage.md#container-usage).
+Движки не взаимозаменяемы флаг-в-флаг: rootless Podman требует
+`--userns=keep-id`, `--user` и — на хосте с SELinux — монтирования с суффиксом
+`:Z`, иначе запуск падает с ошибкой прав на выходной каталог. Зафиксировать
+версию: `:0.3.0` вместо `:latest` (в тегах образа нет префикса `v`). Подробности
+о владельце файлов, SELinux и прочем — в [usage.md](usage.md#container-usage).
 
 ### Сборка из исходников
 

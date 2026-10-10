@@ -291,6 +291,12 @@ Image tags carry no `v` prefix: the tag for release `v0.3.0` is `0.3.0`.
 `latest` is never moved onto a prerelease. An SPDX SBOM is published next to
 each image.
 
+Docker and rootless Podman need different flags. Run them as shown below; the
+one-line claim that `podman` is a drop-in `docker` alias is wrong on a rootless
+Linux host and ends in a permission error on the output.
+
+### Docker
+
 ```bash
 # one file
 docker run --rm -v "$PWD":/data -w /data \
@@ -305,17 +311,58 @@ docker run --rm -i registry.gitlab.com/po1nt-1/procreepy:latest - \
   < artwork.procreate > artwork.mp4
 ```
 
-`podman` substitutes for `docker` as-is.
+The image runs as uid 65532 (`distroless/static:nonroot`), so on a Linux host
+the files it writes to the mount are owned by that uid, not by you. Add
+`--user "$(id -u):$(id -g)"` so the results belong to you:
 
-- **File ownership.** The image runs as uid 65532 (`distroless/static:nonroot`).
-  On a Linux host add `--user "$(id -u):$(id -g)"` so the results belong to you.
-  Docker Desktop on macOS maps mount ownership itself and needs nothing.
-- **No shell inside.** The image contains only the static binary, so
-  `docker run … --help` works but there is no `sh` to exec into.
+```bash
+docker run --rm --user "$(id -u):$(id -g)" -v "$PWD":/data -w /data \
+  registry.gitlab.com/po1nt-1/procreepy:latest input/ output/
+```
+
+Docker Desktop on macOS maps mount ownership itself and needs nothing extra.
+
+### Podman (rootless)
+
+On a rootless Linux host three flags matter, and skipping any one of them ends
+in `permission denied` on the output directory:
+
+- `--userns=keep-id` maps your host uid/gid into the container unchanged.
+  Without it the container's uid 65532 is shifted through your subuid range to
+  some unrelated host uid, and the files it writes are not yours.
+- `--user "$(id -u):$(id -g)"` then runs the binary as that same uid/gid.
+- `:Z` on the mount relabels it for SELinux (Fedora, RHEL, CentOS, openSUSE).
+  Without it SELinux denies the container access to the bind mount. On a host
+  that does not use SELinux the suffix is a harmless no-op and can be dropped.
+
+```bash
+# one file
+podman run --rm --userns=keep-id --user "$(id -u):$(id -g)" \
+  -v "$PWD":/data:Z -w /data \
+  registry.gitlab.com/po1nt-1/procreepy:latest artwork.procreate artwork.mp4
+
+# a folder — mp4/, the projects and procreate.zip all end up owned by you
+podman run --rm --userns=keep-id --user "$(id -u):$(id -g)" \
+  -v "$PWD":/data:Z -w /data \
+  registry.gitlab.com/po1nt-1/procreepy:latest input/ output/
+
+# stdin to stdout needs no mount, and no user mapping
+podman run --rm -i registry.gitlab.com/po1nt-1/procreepy:latest - \
+  < artwork.procreate > artwork.mp4
+```
+
+### Notes for both engines
+
+- **No shell inside.** The image is only the static binary on top of
+  `distroless/static:nonroot`. `… --help` works, but there is no `sh`, so
+  `--entrypoint /bin/sh` fails with *no such file or directory* — it is not a
+  way to look inside or debug a run. Inspect the image with `docker image
+  inspect` / `podman image inspect` instead.
 - **Temporary files** land in the container's writable layer, not on the mount.
   `--tmpdir /data/tmp` moves them onto the mounted volume.
 - **Registry access** follows project visibility; for a private project run
-  `docker login registry.gitlab.com` first.
+  `docker login registry.gitlab.com` (or `podman login registry.gitlab.com`)
+  first.
 
 ## Options
 
