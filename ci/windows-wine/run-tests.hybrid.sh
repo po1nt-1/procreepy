@@ -43,6 +43,10 @@ export GOARCH=amd64
 # under the same prefix.
 export WINEPATH='Z:\opt\go-win\bin'
 
+# Same Wine marker as run-tests.sh — see the comment there and
+# testkit.UnderWine.
+export PROCREEPY_WINE=1
+
 workdir="$(mktemp -d)"
 trap 'rm -rf "${workdir}"' EXIT
 
