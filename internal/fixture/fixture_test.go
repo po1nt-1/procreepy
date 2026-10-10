@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"procreepy/internal/batch"
 	"procreepy/internal/procreate"
 )
 
@@ -54,7 +55,11 @@ func TestRealCorpusSplit(t *testing.T) {
 		before[p] = orig{sum: fileSum(t, p), size: st.Size(), modTime: st.ModTime()}
 	}
 
-	cmd := exec.Command(bin, in, out)
+	// --no-zip keeps the project tree on disk: a clean run otherwise packs it
+	// into procreate.zip and removes the directory, and the assertions below
+	// need the individual files. The packing itself is covered by
+	// internal/batch's zip tests.
+	cmd := exec.Command(bin, "--no-zip", in, out)
 	cmd.Dir = work
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -77,8 +82,8 @@ func TestRealCorpusSplit(t *testing.T) {
 		}
 	}
 
-	projects := filepath.Join(out, "projects")
-	timelapses := filepath.Join(out, "timelapses")
+	projects := filepath.Join(out, batch.ProjectDir)
+	timelapses := filepath.Join(out, batch.TimelapseDir)
 	if _, err := os.Stat(projects); err != nil {
 		t.Fatalf("no projects tree: %v", err)
 	}
@@ -86,46 +91,42 @@ func TestRealCorpusSplit(t *testing.T) {
 	var withVideo, checked, noVideo int
 	for _, p := range inputs {
 		base := strings.TrimSuffix(filepath.Base(p), ".procreate")
-		proj := filepath.Join(projects, base+".procreepy.procreate")
+		proj := filepath.Join(projects, base+batch.ProjectSuffix)
 		mp4 := filepath.Join(timelapses, base+".mp4")
 
-		hadVideo := countSegments(t, p) > 0
-		if !hadVideo {
-			noVideo++
-			// An archive without a timelapse produces neither output.
-			if _, err := os.Stat(proj); err == nil {
-				t.Errorf("%s: has no timelapse but a project was written", base)
+		if countSegments(t, p) > 0 {
+			withVideo++
+			mst, err := os.Stat(mp4)
+			if err != nil {
+				t.Errorf("%s: missing MP4: %v", base, err)
+				continue
 			}
+			if mst.Size() == 0 {
+				t.Errorf("%s: MP4 is empty", base)
+			}
+		} else {
+			noVideo++
+			// A folder run writes the project even when there is no timelapse;
+			// only the video stage is skipped.
 			if _, err := os.Stat(mp4); err == nil {
 				t.Errorf("%s: has no timelapse but an MP4 was written", base)
 			}
-			continue
 		}
-		withVideo++
 
-		// The pair must exist together.
-		mst, err := os.Stat(mp4)
-		if err != nil {
-			t.Errorf("%s: missing MP4: %v", base, err)
-			continue
-		}
-		if mst.Size() == 0 {
-			t.Errorf("%s: MP4 is empty", base)
-		}
+		// The project is written either way, carries the source timestamp, and
+		// preserves every non-segment member byte for byte.
 		pst, err := os.Stat(proj)
 		if err != nil {
 			t.Errorf("%s: missing project: %v", base, err)
 			continue
 		}
-
-		// The project carries the source timestamp.
 		if want := before[p].modTime; !sameModTime(pst.ModTime(), want) {
 			t.Errorf("%s: project mtime = %v, want the source's %v", base, pst.ModTime(), want)
 		}
 		compareArchives(t, base, p, proj)
 		checked++
 	}
-	t.Logf("projects with a timelapse: %d (verified %d), without: %d", withVideo, checked, noVideo)
+	t.Logf("projects verified: %d (%d with a timelapse, %d without)", checked, withVideo, noVideo)
 	if withVideo == 0 {
 		t.Fatal("no project in the corpus had a timelapse; the corpus looks wrong")
 	}
